@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <button id="start">音声を聴く</button>
+  <audio id="audio" autoplay></audio>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const pc = new RTCPeerConnection();
+
+    document.getElementById('start').onclick = async () => {
+      pc.ontrack = (e) => {
+        document.getElementById('audio').srcObject = e.streams[0];
+      };
+
+      // 受信専用の設定
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('offer', offer);
+    };
+
+    socket.on('answer', (answer) => pc.setRemoteDescription(answer));
+  </script>
+</body>
+</html>
