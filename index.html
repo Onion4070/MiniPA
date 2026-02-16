@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>miniPA</title>
+</head>
+<body>
+  <!-- 再生開始ボタン -->
+  <button id="btn">再生開始</button>
+  <p id="delay"></p>
+  <script>
+    document.getElementById("btn").onclick = () => {
+      // 初期化
+      const ctx = new AudioContext({sampleRate: 48000, latencyHint: "interactive"});
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+
+      // 次のバッファ再生開始時刻
+      let nextTime = 0;
+
+      // 許容する最大遅延
+      const MAX_DELAY = 0.05;
+
+      // バイナリ受信を有効化
+      ws.binaryType = "arraybuffer";
+
+      // メッセージ受信時の処理を登録
+      ws.onmessage = (e) => {
+        // 先頭8バイトが送信時刻，  残りが音声データ
+        const view = new DataView(e.data);
+        const sendTime = view.getFloat64(0, true);
+        const delay = (Date.now() / 1000 - sendTime) * 1000;
+        document.getElementById("delay").textContent = `過延: ${delay.toFixed(1)}ms`;
+
+        const float32 = new Float32Array(e.data, 8);
+
+        // モノラルのバッファを作成
+        const buf = ctx.createBuffer(1, float32.length, 48000);
+        buf.getChannelData(0).set(float32);
+
+        // バッファを再生キューに追加
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        const now = ctx.currentTime;
+        // 遅延が溜まりすぎたら現在時刻にリセット
+        if (nextTime < now || nextTime - now > MAX_DELAY) nextTime = now;
+
+        src.start(nextTime);
+        nextTime += buf.duration;
+      };
+
+      document.getElementById("btn").disabled = true;
+      document.getElementById("btn").textContent = "再生中";
+    };
+  </script>
+</body>
+</html>
