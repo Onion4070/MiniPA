@@ -3,7 +3,8 @@
 <body>
   <button id="start">音声を聴く</button>
   <audio id="audio" autoplay></audio>
-  <p>遅延 : <span id="display-delay">0.00</span> ms</p>
+  <p>再生バッファ遅延 : <span id="display-delay">0.00</span> ms</p>
+  <p>ネットワーク遅延 : <span id="display-network-latency">0.0</span> ms</p>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -24,7 +25,7 @@
 
     socket.on('answer', (answer) => pc.setRemoteDescription(answer));
     
-    // ジッターバッファによる1秒間の平均遅延時間測定用
+    // ジッターバッファによる1秒間の平均遅延時間測定及びネットワークレイテンシ計算用
     //
     // ネットワークから届く音声パケットは到着時間がバラバラ
     // そのまま再生すると音がブツブツ切れてしまう
@@ -45,6 +46,9 @@
           // 前回の実行時からの増加分を計算
           const deltaDelay = report.jitterBufferDelay - lastStats.delay;
           const deltaCount = report.jitterBufferEmittedCount - lastStats.count;
+          
+          // RTTに関する情報をログ出力
+          console.log(Array.from(stats).filter(([_, r]) => r.roundTripTime || r.currentRoundTripTime));
 
           if (deltaCount > 0) {
             // この1秒間における平均遅延
@@ -62,6 +66,15 @@
           // 今回の値を保存
           lastStats.delay = report.jitterBufferDelay;
           lastStats.count = report.jitterBufferEmittedCount;
+        }
+
+        // ネットワーク遅延（candidate-pair）
+        if (report.type === "candidate-pair" && report.state === "succeeded") {
+          if (typeof report.currentRoundTripTime !== 'undefined') {
+            // 片道遅延 = RTT / 2
+            const networkMs = (report.currentRoundTripTime / 2 * 1000).toFixed(1);
+            document.getElementById('display-network-latency').textContent = networkMs;
+          }
         }
       });
     }, 1000);
