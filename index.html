@@ -17,6 +17,10 @@
       // 次のバッファ再生開始時刻
       let nextTime = 0;
 
+      // サーバーとクライアント間の時刻差
+      let timeOffset = null
+      let lastResetTime = performance.now()
+
       // 許容する最大遅延
       const MAX_DELAY = 0.05;
 
@@ -25,12 +29,24 @@
 
       // メッセージ受信時の処理を登録
       ws.onmessage = (e) => {
+        // 停止時の処理
+        if (ctx.state === 'suspended') ctx.resume();
+
         // 先頭8バイトが送信時刻，  残りが音声データ
         const view = new DataView(e.data);
         const sendTime = view.getFloat64(0, true);
-        const delay = (Date.now() / 1000 - sendTime) * 1000;
-        document.getElementById("delay").textContent = `過延: ${delay.toFixed(1)}ms`;
+        const receiveTime = performance.now() / 1000
 
+        // 10秒ごとにTimeOffsetを更新
+        if (timeOffset === null || (receiveTime - sendTime) < timeOffset) timeOffset = receiveTime - sendTime;
+        if (performance.now() - lastResetTime > 10000) {
+            timeOffset = receiveTime - sendTime;
+            lastResetTime = performance.now()
+        }
+        
+        const baseDelay = receiveTime - (sendTime + timeOffset)
+
+        // 音声データを取得
         const float32 = new Float32Array(e.data, 8);
 
         // モノラルのバッファを作成
@@ -41,9 +57,22 @@
         const src = ctx.createBufferSource();
         src.buffer = buf;
         src.connect(ctx.destination);
+
         const now = ctx.currentTime;
+
         // 遅延が溜まりすぎたら現在時刻にリセット
-        if (nextTime < now || nextTime - now > MAX_DELAY) nextTime = now;
+        if (nextTime < now) nextTime = now;
+        if (nextTime - now > MAX_DELAY) nextTime = now + 0.02
+
+        // バッファに溜まっている時間を計算
+        const bufferDelay = nextTime - now
+
+        // 遅延の詳細表示
+        document.getElementById("delay").innerHTML = `
+          合計: ${((baseDelay + bufferDelay) * 1000).toFixed(1)}ms<br>
+          通信: ${(baseDelay * 1000).toFixed(1)}ms / バッファ: ${(bufferDelay * 1000).toFixed(1)}ms<br>
+          now: ${now.toFixed(2)} / next: ${nextTime.toFixed(2)}
+        `;
 
         src.start(nextTime);
         nextTime += buf.duration;

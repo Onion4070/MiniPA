@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore", message="data discontinuity")
 # 設定
 SAMPLERATE = 48000
 BLOCKSIZE  = 480
+SERVER_START_TIME = time.perf_counter()
 
 # モノラルでループバック録音
 mic = sc.get_microphone(id=sc.default_speaker().name, include_loopback=True)
@@ -62,11 +63,14 @@ async def audio_ws(ws: WebSocket):
         while True:
             # 録音処理を別スレッドで実行
             audio_bytes = await loop.run_in_executor(None, capture_audio)
+            # サーバー起動からの経過時間を計算
+            elapsed = time.perf_counter() - SERVER_START_TIME
+            timestamp = struct.pack('d', elapsed)
             # 送信時刻（8バイト）+ 音声データを送信
-            timestamp = struct.pack('d', time.time())
             await ws.send_bytes(timestamp + audio_bytes)
-    except:
-        pass
+    except Exception as e:
+        print(f"DEBUG:    {e}")
+        pass        
 
 if __name__ == "__main__":
     import uvicorn
