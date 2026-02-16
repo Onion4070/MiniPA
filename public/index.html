@@ -22,6 +22,46 @@
     };
 
     socket.on('answer', (answer) => pc.setRemoteDescription(answer));
+    
+    // ジッターバッファによる1秒間の平均遅延時間測定用
+    //
+    // ネットワークから届く音声パケットは到着時間がバラバラ
+    // そのまま再生すると音がブツブツ切れてしまう
+    // そのため、パケットをバッファに溜めて「順番待ち」させる→ジッター吸収のためにバッファに滞留した平均時間
+    
+    // 前回の値を保存する変数
+    let lastStats = {
+      delay: 0,
+      count: 0
+    };
+
+    setInterval(async () => {
+      const stats = await pc.getStats();
+
+      stats.forEach(report => {
+        if (report.type === "inbound-rtp" && report.kind === "audio") {
+          
+          // 前回の実行時からの増加分を計算
+          const deltaDelay = report.jitterBufferDelay - lastStats.delay;
+          const deltaCount = report.jitterBufferEmittedCount - lastStats.count;
+
+          if (deltaCount > 0) {
+            // この1秒間における平均遅延
+            const currentAvgDelay = deltaDelay / deltaCount;
+            const delayMs = (currentAvgDelay * 1000).toFixed(2); // ミリ秒換算
+
+            console.log(`--- Real-time Audio Stats ---`);
+            console.log(`Current Delay : ${delayMs} ms`);
+            console.log(`Jitter        : ${(report.jitter * 1000).toFixed(2)} ms`);
+            console.log(`Packets Lost  : ${report.packetsLost}`);
+          }
+
+          // 今回の値を保存
+          lastStats.delay = report.jitterBufferDelay;
+          lastStats.count = report.jitterBufferEmittedCount;
+        }
+      });
+    }, 1000);
   </script>
 </body>
 </html>
