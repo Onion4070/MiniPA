@@ -24,7 +24,9 @@
     "dgram": "^1.0.1",
     "ejs": "^4.0.1",
     "express": "^5.2.1",
+    "internal-ip": "^7.0.0",
     "nodemon": "^3.1.11",
+    "qrcode-terminal": "^0.12.0",
     "socket.io": "^4.8.3",
     "werift": "^0.22.4"
   }

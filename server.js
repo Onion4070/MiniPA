@@ -3,6 +3,7 @@ const http = require('http');
 const dgram = require('dgram');
 const { Server } = require('socket.io');
 const { RTCPeerConnection, MediaStreamTrack, RTCRtpCodecParameters } = require('werift');
+const qrcode = require('qrcode-terminal');
 
 const app = express();
 const server = http.createServer(app);
@@ -53,6 +54,12 @@ io.on('connection', async (socket) => {
     });
 });
 
-server.listen(3000, () => {
-    console.log('Server: http://localhost:3000');
+server.listen(3000, '0.0.0.0', async () => {
+    const { internalIpV4 } = await import('internal-ip');
+    const ip = await internalIpV4() || 'localhost';
+    const url = `http://${ip}:3000`;
+    console.log(url);
+    qrcode.generate(url, { small: true }, (code) => {
+        console.log(code);
+    });
 });
