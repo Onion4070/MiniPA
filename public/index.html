@@ -3,6 +3,7 @@
 <body>
   <button id="start">音声を聴く</button>
   <audio id="audio" autoplay></audio>
+  <p>遅延 : <span id="display-delay">0.00</span> ms</p>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -54,6 +55,8 @@
             console.log(`Current Delay : ${delayMs} ms`);
             console.log(`Jitter        : ${(report.jitter * 1000).toFixed(2)} ms`);
             console.log(`Packets Lost  : ${report.packetsLost}`);
+
+            document.getElementById('display-delay').textContent = delayMs;
           }
 
           // 今回の値を保存
