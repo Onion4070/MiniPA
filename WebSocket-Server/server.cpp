@@ -3,11 +3,19 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
+#include <mutex>
+#include <algorithm>
+
+#include "audio_capture.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace websocket = beast::websocket;
 using tcp = boost::asio::ip::tcp;
+
+std::vector<websocket::stream<tcp::socket>*> clients;
+std::mutex clients_mutex;
 
 std::string load_file(const std::string& path) {
     std::ifstream t(path);
@@ -23,15 +31,16 @@ void session(tcp::socket socket) {
     if (websocket::is_upgrade(req) && req.target() == "/ws") {
         websocket::stream<tcp::socket> ws(std::move(socket));
         ws.accept(req);
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clients.push_back(&ws);
+		}
+		std::cout << "WebSocket connection established." << std::endl;
 
         while (1) {
             try {
                 beast::flat_buffer buf;
                 ws.read(buf);
-				auto out = beast::buffers_to_string(buf.data());
-				std::cout << "Received: " << out << std::endl;
-
-                ws.write(buf.data());
             }
             catch (beast::system_error const& se) {
                 if (se.code() != websocket::error::closed) {
@@ -39,7 +48,16 @@ void session(tcp::socket socket) {
                     break;
                 }
             }
+
+            {
+				std::lock_guard<std::mutex> lock(clients_mutex);
+                clients.erase(
+                    std::remove(clients.begin(), clients.end(), &ws),
+                    clients.end());
+            }
         }
+
+		std::cout << "WebSocket connection closed." << std::endl;
         return;
     }
 
@@ -57,6 +75,30 @@ void session(tcp::socket socket) {
 int main() {
     boost::asio::io_context ioc;
     tcp::acceptor acceptor(ioc, { tcp::v4(),9001 });
+
+	std::cout << "Server is running on port 9001..." << std::endl;
+
+    AudioCapture cap;
+    cap.start([](const uint8_t* data, size_t size) {
+        // 送信時タイムスタンプ
+		auto now = std::chrono::steady_clock::now().time_since_epoch();
+        double ts = std::chrono::duration<double>(now).count();
+
+        // 送信パケット(タイムスタンプ + 音声)
+        std::vector<uint8_t> packet(sizeof(double) + size);
+		memcpy(packet.data(), &ts, sizeof(double));
+		memcpy(packet.data() + sizeof(double), data, size);
+
+        std::lock_guard<std::mutex> lock(clients_mutex);
+
+        for (auto* ws : clients) {
+            try {
+                ws->binary(true);
+                ws->write(boost::asio::buffer(packet));
+            }
+            catch (...) {}
+        }
+    });
 
     while (1) {
         tcp::socket socket(ioc);
