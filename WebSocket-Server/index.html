@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+
+<html lang="ja-JP">
+<body>
+<input id="msg" placeholder="message">
+<button onclick="send()">Send</button>
+<pre id="log"></pre>
+
+<script>
+const ws = new WebSocket(`ws://${location.host}/ws`);
+
+ws.onopen = () => log("connected");
+ws.onmessage = e => log("recv: " + e.data);
+ws.onerror = e => log("error");
+ws.onclose = () => log("closed");
+
+function send(){
+  const v = msg.value;
+  ws.send(v);
+  log("sent: " + v);
+}
+
+function log(t){
+  logbox.textContent += t + "\n";
+}
+</script>
+
+<pre id="logbox"></pre>
+
+</body>
+</html>
