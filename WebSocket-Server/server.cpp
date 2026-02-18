@@ -26,12 +26,24 @@ int main() {
 			ws.accept();
 
 			while (1) {
-				// Receive a message from the client
-				boost::beast::flat_buffer buffer;
-				ws.read(buffer);
+				try {
+					// Receive a message from the client
+					boost::beast::flat_buffer buffer;
+					ws.read(buffer);
 
-				auto out = boost::beast::buffers_to_string(buffer.cdata());
-				std::cout << "Received: " << out << std::endl;
+					auto out = boost::beast::buffers_to_string(buffer.cdata());
+					std::cout << "Received: " << out << std::endl;
+
+					ws.write(buffer.data());
+				}
+				catch (boost::beast::system_error const& se) {
+					// Handle close WebSocket connection error
+					if (se.code() != boost::beast::websocket::error::closed) {
+						std::cerr << "Error: " << se.code().message() << std::endl;
+						break;
+					}
+				}
+				
 			}
 
 		}}.detach();
