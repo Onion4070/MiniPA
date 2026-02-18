@@ -208,7 +208,8 @@ __marimo__/
 
 # Visual Studio
 WebSocket-Server/.vs/
-WebSocket-Server/WebSocket-Server
-WebSocket-Server/x64
+WebSocket-Server/WebSocket-Server/
+WebSocket-Server/x64/
+WebSocket-Server/enc_temp_folder/
 WebSocket-Server/WebSocket-Server.vcxproj.filters
 WebSocket-Server/WebSocket-Server.vcxproj.user
