@@ -14,7 +14,7 @@ namespace http = beast::http;
 namespace websocket = beast::websocket;
 using tcp = boost::asio::ip::tcp;
 
-std::vector<websocket::stream<tcp::socket>*> clients;
+std::vector<std::shared_ptr<websocket::stream<tcp::socket>>> clients;
 std::mutex clients_mutex;
 
 std::string load_file(const std::string& path) {
@@ -29,20 +29,20 @@ void session(tcp::socket socket) {
 
     // WebSocket Upgrade判定
     if (websocket::is_upgrade(req) && req.target() == "/ws") {
-        websocket::stream<tcp::socket> ws(std::move(socket));
-        ws.accept(req);
+        auto ws = std::make_shared<websocket::stream<tcp::socket>>(std::move(socket));
+        ws->accept(req);
 		//tcp::no_delay option(true);
 		//ws.next_layer().set_option(option);
         {
             std::lock_guard<std::mutex> lock(clients_mutex);
-            clients.push_back(&ws);
+            clients.push_back(ws);
 		}
 		std::cout << "WebSocket connection established." << std::endl;
 
         while (1) {
             try {
                 beast::flat_buffer buf;
-                ws.read(buf);
+                ws->read(buf);
             }
             catch (beast::system_error const& se) {
                 if (se.code() != websocket::error::closed) {
@@ -50,13 +50,13 @@ void session(tcp::socket socket) {
                     break;
                 }
             }
+        }
 
-            {
-				std::lock_guard<std::mutex> lock(clients_mutex);
-                clients.erase(
-                    std::remove(clients.begin(), clients.end(), &ws),
-                    clients.end());
-            }
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clients.erase(
+                std::remove(clients.begin(), clients.end(), ws),
+                clients.end());
         }
 
 		std::cout << "WebSocket connection closed." << std::endl;
@@ -93,7 +93,7 @@ int main() {
 
         std::lock_guard<std::mutex> lock(clients_mutex);
 
-        for (auto* ws : clients) {
+        for (auto ws : clients) {
             try {
                 ws->binary(true);
                 ws->write(boost::asio::buffer(packet));
