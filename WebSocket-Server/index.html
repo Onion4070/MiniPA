@@ -50,11 +50,29 @@ function start(){
 
     // 遅延防止：再生時刻を詰める
     const now = ctx.currentTime;
-    if(nextTime < now) nextTime = now;
-    if (nextTime - now > 30/1000) nextTime = now;
 
     const bufferDelay = nextTime - now;
     const total = netDelay + bufferDelay;
+
+    const TARGET = 0.02;     // 目標値
+    const TOLERANCE = 0.01;  // 許容幅 TARGET ± TOLERANCEに収まるように
+
+    const diff = nextTime - now;
+
+    // 許容範囲なら何もしない
+    if (Math.abs(diff - TARGET) < TOLERANCE) {
+      // noop
+    }
+
+    // 遅延が大きすぎる
+    else if (diff > TARGET) {
+      nextTime -= 0.002;
+    }
+
+    // 早すぎる
+    else {
+      nextTime += 0.002;
+    }
 
     document.getElementById("delay").innerHTML = `
     total ${ (total*1000).toFixed(1)} ms<br>
