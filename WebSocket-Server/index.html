@@ -1,31 +1,71 @@
 <!DOCTYPE html>
-
-<html lang="ja-JP">
+<html lang="ja">
 <body>
-<input id="msg" placeholder="message">
-<button onclick="send()">Send</button>
-<pre id="log"></pre>
+<button onclick="start()">Start</button>
+<div id="delay"></div>
 
 <script>
-const ws = new WebSocket(`ws://${location.host}/ws`);
+let ws;
+let ctx;
+let nextTime = 0;
+let offset = null;
 
-ws.onopen = () => log("connected");
-ws.onmessage = e => log("recv: " + e.data);
-ws.onerror = e => log("error");
-ws.onclose = () => log("closed");
+function start(){
+  ctx = new AudioContext({sampleRate: 48000, latencyHint: "interactive" });
 
-function send(){
-  const v = msg.value;
-  ws.send(v);
-  log("sent: " + v);
-}
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.binaryType = "arraybuffer";
 
-function log(t){
-  logbox.textContent += t + "\n";
+  ws.onopen = () => console.log("connected");
+
+  ws.onmessage = e => {
+    const view = new DataView(e.data);
+    // サーバ送信時刻
+    const sendTime = view.getFloat64(0, true);
+    // クライアント受信時刻
+    const recvTime = performance.now()/1000;
+    // オフセット推定
+    if (offset === null || recvTime - sendTime < offset)
+      offset = recvTime - sendTime;
+
+    // 通信遅延
+    const netDelay = recvTime - sendTime - offset;
+
+    const float32 = new Float32Array(e.data, 8);
+
+    // ステレオのバッファを作成
+    const frames = float32.length / 2;
+    const buf = ctx.createBuffer(2, frames, 48000);
+    const ch0 = buf.getChannelData(0);
+    const ch1 = buf.getChannelData(1);
+
+    for (let i=0, j=0; i < frames; i++, j+=2) {
+      ch0[i] = float32[j];
+      ch1[i] = float32[j+1];
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+
+    // 遅延防止：再生時刻を詰める
+    const now = ctx.currentTime;
+    if(nextTime < now) nextTime = now;
+    if (nextTime - now > 30/1000) nextTime = now;
+
+    const bufferDelay = nextTime - now;
+    const total = netDelay + bufferDelay;
+
+    document.getElementById("delay").innerHTML = `
+    total ${ (total*1000).toFixed(1)} ms<br>
+    network ${ (netDelay*1000).toFixed(1)} ms / buffer ${ (bufferDelay*1000).toFixed(1)} ms<br>
+    now: ${now.toFixed(2)} / next: ${nextTime.toFixed(2)}
+    `;
+
+    src.start(nextTime);
+    nextTime += buf.duration;
+  };
 }
 </script>
-
-<pre id="logbox"></pre>
-
 </body>
 </html>
