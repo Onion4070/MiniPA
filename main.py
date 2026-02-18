@@ -20,7 +20,7 @@ SERVER_START_TIME = time.perf_counter()
 
 # モノラルでループバック録音
 mic = sc.get_microphone(id=sc.default_speaker().name, include_loopback=True)
-recorder = mic.recorder(samplerate=SAMPLERATE, channels=1)
+recorder = mic.recorder(samplerate=SAMPLERATE, channels=2)
 recorder.__enter__()
 
 # PCのスピーカー出力を取得

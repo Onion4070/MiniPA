@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<html lang="ja-JP">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -49,9 +50,16 @@
         // 音声データを取得
         const float32 = new Float32Array(e.data, 8);
 
-        // モノラルのバッファを作成
-        const buf = ctx.createBuffer(1, float32.length, 48000);
-        buf.getChannelData(0).set(float32);
+        // ステレオのバッファを作成
+        const frames = float32.length / 2;
+        const buf = ctx.createBuffer(2, frames, 48000);
+        const ch0 = buf.getChannelData(0);
+        const ch1 = buf.getChannelData(1);
+
+        for (let i=0, j=0; i < frames; i++, j+=2) {
+          ch0[i] = float32[j];
+          ch1[i] = float32[j+1];
+        }
 
         // バッファを再生キューに追加
         const src = ctx.createBufferSource();
@@ -60,12 +68,12 @@
 
         const now = ctx.currentTime;
 
-        // 遅延が溜まりすぎたら現在時刻にリセット
-        if (nextTime < now) nextTime = now;
-        if (nextTime - now > MAX_DELAY) nextTime = now + 0.02
-
         // バッファに溜まっている時間を計算
         const bufferDelay = nextTime - now
+
+        // 遅延が溜まりすぎたら現在時刻にリセット
+        if (nextTime < now) nextTime = now;
+        if (bufferDelay > MAX_DELAY) nextTime = now + 2/1000;
 
         // 遅延の詳細表示
         document.getElementById("delay").innerHTML = `
