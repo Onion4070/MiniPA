@@ -31,6 +31,8 @@ void session(tcp::socket socket) {
     if (websocket::is_upgrade(req) && req.target() == "/ws") {
         websocket::stream<tcp::socket> ws(std::move(socket));
         ws.accept(req);
+		//tcp::no_delay option(true);
+		//ws.next_layer().set_option(option);
         {
             std::lock_guard<std::mutex> lock(clients_mutex);
             clients.push_back(&ws);

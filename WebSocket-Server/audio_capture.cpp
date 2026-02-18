@@ -26,10 +26,17 @@ bool AudioCapture::start(Callback cb) {
         WAVEFORMATEX* format;
         client->GetMixFormat(&format);
 
+        HANDLE hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
         client->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_LOOPBACK,
-            0, 0, format, nullptr);
+            AUDCLNT_STREAMFLAGS_LOOPBACK | 
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+            100000, // 100ms 
+            0, 
+            format, 
+            nullptr);
+        client->SetEventHandle(hEvent);
 
         IAudioCaptureClient* capture;
         client->GetService(__uuidof(IAudioCaptureClient), (void**)&capture);
@@ -37,6 +44,7 @@ bool AudioCapture::start(Callback cb) {
         client->Start();
 
         while (running) {
+            WaitForSingleObject(hEvent, INFINITE);
             UINT32 packet = 0;
             capture->GetNextPacketSize(&packet);
 
@@ -53,10 +61,9 @@ bool AudioCapture::start(Callback cb) {
                 capture->ReleaseBuffer(frames);
                 capture->GetNextPacketSize(&packet);
             }
-            Sleep(1);
         }
-
-        }).detach();
+        CloseHandle(hEvent);
+    }).detach();
 
     return true;
 }

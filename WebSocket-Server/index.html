@@ -11,7 +11,7 @@ let nextTime = 0;
 let offset = null;
 
 function start(){
-  ctx = new AudioContext({sampleRate: 48000, latencyHint: "interactive" });
+  ctx = new AudioContext({latencyHint: 0.001 });
 
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.binaryType = "arraybuffer";
