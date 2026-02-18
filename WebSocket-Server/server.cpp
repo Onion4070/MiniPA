@@ -1,6 +1,8 @@
 ﻿#include <boost/beast.hpp>
 #include <boost/asio.hpp>
 #include <fstream>
+#include <iostream>
+#include <string>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -23,10 +25,20 @@ void session(tcp::socket socket) {
         ws.accept(req);
 
         while (1) {
-            beast::flat_buffer buf;
-            ws.read(buf);
-            ws.text(ws.got_text());
-            ws.write(buf.data());
+            try {
+                beast::flat_buffer buf;
+                ws.read(buf);
+				auto out = beast::buffers_to_string(buf.data());
+				std::cout << "Received: " << out << std::endl;
+
+                ws.write(buf.data());
+            }
+            catch (beast::system_error const& se) {
+                if (se.code() != websocket::error::closed) {
+                    std::cerr << "Error: " << se.code().message() << std::endl;
+                    break;
+                }
+            }
         }
         return;
     }
@@ -49,6 +61,7 @@ int main() {
     while (1) {
         tcp::socket socket(ioc);
         acceptor.accept(socket);
+        std::cout << "Accepted connection from " << socket.remote_endpoint() << std::endl;
         std::thread(session, std::move(socket)).detach();
     }
 }
