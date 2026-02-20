@@ -32,7 +32,7 @@ void session(tcp::socket socket) {
         auto ws = std::make_shared<websocket::stream<tcp::socket>>(std::move(socket));
         ws->accept(req);
 		//tcp::no_delay option(true);
-		//ws.next_layer().set_option(option);
+		//ws->next_layer().set_option(option);
         {
             std::lock_guard<std::mutex> lock(clients_mutex);
             clients.push_back(ws);

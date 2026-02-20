@@ -9,6 +9,7 @@ let ws;
 let ctx;
 let nextTime = 0;
 let offset = null;
+let isAdjusting = false; // 補正フラグ
 
 function start(){
   ctx = new AudioContext({latencyHint: 0.001 });
@@ -54,24 +55,33 @@ function start(){
     const bufferDelay = nextTime - now;
     const total = netDelay + bufferDelay;
 
-    const TARGET = 0.02;     // 目標値
-    const TOLERANCE = 0.01;  // 許容幅 TARGET ± TOLERANCEに収まるように
+    const TARGET = 0.030;           // 目標値: 30ms
+    const START_THRESHOLD = 0.015;  // 補正開始閾値: 15ms超過で開始
+    const STOP_THRESHOLD  = 0.005;  // 補正終了閾値: 5ms以内で停止
+    const CORRECTION_STEP = 0.002;  // 補正ステップ: 2ms
+    const MAX_CORRECTION  = 0.050;  // 最大補正量: 50ms
+    
+    const error = bufferDelay - TARGET;  // 目標値からの誤差
+    
+    // ヒステリシス制御
+    if (Math.abs(error) > START_THRESHOLD) isAdjusting = true;   // 補正開始
+    if (Math.abs(error) < STOP_THRESHOLD)  isAdjusting = false;  // 補正終了
 
-    const diff = nextTime - now;
-
-    // 許容範囲なら何もしない
-    if (Math.abs(diff - TARGET) < TOLERANCE) {
-      // noop
+    if (bufferDelay < 0) {
+      // 早すぎ
+      nextTime = now + TARGET;
     }
 
-    // 遅延が大きすぎる
-    else if (diff > TARGET) {
-      nextTime -= 0.002;
+    if (bufferDelay > 0.200) {
+      // 200ms以上の遅延は強制リセット
+      nextTime = now + TARGET;
+      isAdjusting = false;
     }
 
-    // 早すぎる
-    else {
-      nextTime += 0.002;
+    if (isAdjusting && Math.abs(error) > STOP_THRESHOLD) {
+      let correction = Math.sign(error) * Math.min(CORRECTION_STEP, Math.abs(error) * 0.1);  // 補正量を計算
+      correction = Math.max(-MAX_CORRECTION, Math.min(MAX_CORRECTION, correction));          // 補正量を制限()
+      nextTime -= correction; // 補正を適用
     }
 
     document.getElementById("delay").innerHTML = `
