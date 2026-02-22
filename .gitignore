@@ -207,6 +207,7 @@ marimo/_lsp/
 __marimo__/
 
 # Visual Studio
+.vs/
 WebSocket-Server/.vs/
 WebSocket-Server/WebSocket-Server/
 WebSocket-Server/x64/

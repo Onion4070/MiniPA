@@ -1,7 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <body>
 <button onclick="start()">Start</button>
+TARGET (ms): <input type="number" id="target" value="30" style="width:50px">
 <div id="delay"></div>
 
 <script>
@@ -55,7 +56,9 @@ function start(){
     const bufferDelay = nextTime - now;
     const total = netDelay + bufferDelay;
 
-    const TARGET = 0.030;           // 目標値: 30ms
+    const TARGET = (parseFloat(document.getElementById('target').value) || 30) / 1000;
+    if (isNaN(TARGET)) TARGET = 0.030   // 空欄時は30msとして動作させる
+
     const START_THRESHOLD = 0.015;  // 補正開始閾値: 15ms超過で開始
     const STOP_THRESHOLD  = 0.005;  // 補正終了閾値: 5ms以内で停止
     const CORRECTION_STEP = 0.002;  // 補正ステップ: 2ms
