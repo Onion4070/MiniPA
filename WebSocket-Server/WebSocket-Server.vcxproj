@@ -105,12 +105,14 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>qrencode.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
-      <Command>copy /Y "C:\vcpkg\installed\x64-windows\debug\bin\qrencoded.dll" "$(OutDir)"</Command>
+      <Command>copy /Y "C:\vcpkg\installed\x64-windows\bin\qrencode.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
     <PreBuildEvent>
-      <Message>libqrencodeのdllをコピー(Debug)</Message>
+      <Message>libqrencodeのdllをコピー</Message>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -126,12 +128,14 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>qrencode.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
       <Command>copy /Y "C:\vcpkg\installed\x64-windows\bin\qrencode.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
     <PreBuildEvent>
-      <Message>libqrencodeのdllをコピー(Release)</Message>
+      <Message>libqrencodeのdllをコピー</Message>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -145,12 +149,14 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>qrencode.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
-      <Command>copy /Y "C:\vcpkg\installed\x64-windows\debug\bin\qrencoded.dll" "$(OutDir)"</Command>
+      <Command>copy /Y "C:\vcpkg\installed\x64-windows\bin\qrencode.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
     <PreBuildEvent>
-      <Message>libqrencodeのdllをコピー(Debug)</Message>
+      <Message>libqrencodeのdllをコピー</Message>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -166,12 +172,14 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>qrencode.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
       <Command>copy /Y "C:\vcpkg\installed\x64-windows\bin\qrencode.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
     <PreBuildEvent>
-      <Message>libqrencodeのdllをコピー(Release)</Message>
+      <Message>libqrencodeのdllをコピー</Message>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
