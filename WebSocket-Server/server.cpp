@@ -6,6 +6,8 @@
 #include <vector>
 #include <mutex>
 #include <algorithm>
+#include <Windows.h>
+#include <qrencode.h>
 
 #include "audio_capture.h"
 
@@ -74,7 +76,42 @@ void session(tcp::socket socket) {
     http::write(socket, res);
 }
 
+inline const char* u8_to_cstr(const char8_t* s) noexcept {
+    return reinterpret_cast<const char*>(s);
+}
+
+void show_qr(const char* text) {
+    // コンソールのUTF-8対応
+    SetConsoleOutputCP(CP_UTF8);
+
+    QRcode* qr = QRcode_encodeString(text, 0, QR_ECLEVEL_L, QR_MODE_8, 0);
+    if (!qr) {
+        std::cerr << "Failed to generate QR code." << std::endl;
+        exit(1);
+    }
+
+    // QRコードを表示
+    int w = qr->width;
+    unsigned char* data = qr->data;
+
+    for (int y = 0; y < w; y += 2) {
+        for (int x = 0; x < w; ++x) {
+            bool top = data[y * w + x] & 1;
+            bool bottom = (y + 1 < w) ? (data[(y + 1) * w + x] & 1) : false;
+
+            if (top && bottom)       std::cout << u8_to_cstr(u8"█");
+            else if (top && !bottom) std::cout << u8_to_cstr(u8"▀");
+            else if (!top && bottom) std::cout << u8_to_cstr(u8"▄");
+            else std::cout << " ";
+        }
+        std::cout << "\n";
+    }
+    QRcode_free(qr);
+}
+
 int main() {
+	show_qr("localhost:9001");
+
     boost::asio::io_context ioc;
     tcp::acceptor acceptor(ioc, { tcp::v4(),9001 });
 
