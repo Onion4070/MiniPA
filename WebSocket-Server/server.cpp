@@ -10,6 +10,7 @@
 #include <qrencode.h>
 
 #include "audio_capture.h"
+#include "net_utils.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -110,12 +111,15 @@ void show_qr(const char* text) {
 }
 
 int main() {
-	show_qr("localhost:9001");
+    // http://{ server IP }:9001 のQRコードを表示
+	std::string localIP = net_utils::GetLocalIP();   
+	std::string url = "http://" + localIP + ":9001";
+	show_qr(url.c_str());
 
     boost::asio::io_context ioc;
     tcp::acceptor acceptor(ioc, { tcp::v4(),9001 });
 
-	std::cout << "Server is running on port 9001..." << std::endl;
+	std::cout << "Server is running on " << url << std::endl;
 
     AudioCapture cap;
     cap.start([](const uint8_t* data, size_t size) {
