@@ -49,7 +49,8 @@ void session(tcp::socket socket) {
             }
             catch (beast::system_error const& se) {
                 if (se.code() != websocket::error::closed) {
-                    std::cerr << "Error: " << se.code().message() << std::endl;
+					//std::cerr << "server.cpp: void session()" << std::endl;
+                    std::cerr << "Error: " << se.code().value() << std::endl;
                     break;
                 }
             }
@@ -77,42 +78,62 @@ void session(tcp::socket socket) {
     http::write(socket, res);
 }
 
-inline const char* u8_to_cstr(const char8_t* s) noexcept {
-    return reinterpret_cast<const char*>(s);
-}
-
 void show_qr(const char* text) {
-    // コンソールのUTF-8対応
-    SetConsoleOutputCP(CP_UTF8);
-
-    QRcode* qr = QRcode_encodeString(text, 0, QR_ECLEVEL_L, QR_MODE_8, 0);
+    QRcode* qr = QRcode_encodeString(text, 0, QR_ECLEVEL_Q, QR_MODE_8, 1);
     if (!qr) {
-        std::cerr << "Failed to generate QR code." << std::endl;
+        std::cerr << "Failed to generate QR code.\n";
         exit(1);
     }
 
-    // QRコードを表示
-    int w = qr->width;
+    // 枠の幅
+    const int border = 1;
+    const int w = qr->width;
     unsigned char* data = qr->data;
 
-    for (int y = 0; y < w; y += 2) {
-        for (int x = 0; x < w; ++x) {
-            bool top = data[y * w + x] & 1;
-            bool bottom = (y + 1 < w) ? (data[(y + 1) * w + x] & 1) : false;
+    for (int y = -border; y < w + border; y += 2) {
+        for (int x = -border; x < w + border; x++) {
 
-            if (top && bottom)       std::cout << u8_to_cstr(u8"█");
-            else if (top && !bottom) std::cout << u8_to_cstr(u8"▀");
-            else if (!top && bottom) std::cout << u8_to_cstr(u8"▄");
-            else std::cout << " ";
+            bool top = false;
+            bool bottom = false;
+
+            // 上ピクセル
+            if (x >= 0 && y >= 0 && x < w && y < w)
+                top = data[y * w + x] & 1;
+
+            // 下ピクセル
+            if (x >= 0 && y + 1 >= 0 && x < w && y + 1 < w)
+                bottom = data[(y + 1) * w + x] & 1;
+
+			// 最下段は下ピクセルなし
+            if (y >= w + border - 1)
+                bottom = true;
+
+            // 白黒反転
+            top = !top;
+            bottom = !bottom;
+
+            // 描画
+            if (top && bottom)
+                std::cout << (const char*)u8"█";
+            else if (top)
+                std::cout << (const char*)u8"▀";
+            else if (bottom)
+                std::cout << (const char*)u8"▄";
+            else
+                std::cout << " ";
         }
         std::cout << "\n";
     }
+
     QRcode_free(qr);
 }
 
 int main() {
+
+    SetConsoleOutputCP(CP_UTF8);
+
     // http://{ server IP }:9001 のQRコードを表示
-	std::string localIP = net_utils::GetLocalIP();   
+	std::string localIP = NetUtils::GetLocalIP();   
 	std::string url = "http://" + localIP + ":9001";
 	show_qr(url.c_str());
 
