@@ -17,7 +17,8 @@ namespace http = beast::http;
 namespace websocket = beast::websocket;
 using tcp = boost::asio::ip::tcp;
 
-std::vector<std::shared_ptr<websocket::stream<tcp::socket>>> clients;
+class session;
+std::vector<std::shared_ptr<session>> clients;
 std::mutex clients_mutex;
 
 std::string load_file(const std::string& path) {
@@ -25,58 +26,83 @@ std::string load_file(const std::string& path) {
     return { std::istreambuf_iterator<char>(t),{} };
 }
 
-void session(tcp::socket socket) {
-    beast::flat_buffer buffer;
-    http::request<http::string_body> req;
-    http::read(socket, buffer, req);
+class session : public std::enable_shared_from_this<session> {
+    tcp::socket socket_;
+    std::shared_ptr<websocket::stream<tcp::socket>> ws_;
+    std::vector<std::vector<uint8_t>> send_queue_;
+    std::mutex send_mutex_;
+    bool sending_ = false;
 
-    // WebSocket Upgrade判定
-    if (websocket::is_upgrade(req) && req.target() == "/ws") {
-        auto ws = std::make_shared<websocket::stream<tcp::socket>>(std::move(socket));
-        ws->accept(req);
-		//tcp::no_delay option(true);
-		//ws->next_layer().set_option(option);
-        {
-            std::lock_guard<std::mutex> lock(clients_mutex);
-            clients.push_back(ws);
-		}
-		std::cout << "WebSocket connection established." << std::endl;
+public:
+    explicit session(tcp::socket socket) : socket_(std::move(socket)) {}
 
-        while (1) {
-            try {
-                beast::flat_buffer buf;
-                ws->read(buf);
+    void run(http::request<http::string_body> req) {
+        if (websocket::is_upgrade(req) && req.target() == "/ws") {
+            ws_ = std::make_shared<websocket::stream<tcp::socket>>(std::move(socket_));
+            ws_->accept(req);
+            {
+                std::lock_guard<std::mutex> lock(clients_mutex);
+                clients.push_back(shared_from_this());
             }
-            catch (beast::system_error const& se) {
-                if (se.code() != websocket::error::closed) {
-					//std::cerr << "server.cpp: void session()" << std::endl;
-                    std::cerr << "Error: " << se.code().value() << std::endl;
+
+            std::cout << "WebSocket connection established." << std::endl;
+
+            while (true) {
+                try {
+                    beast::flat_buffer buf;
+                    ws_->read(buf);
+                }
+                catch (beast::system_error const& se) {
+                    if (se.code() != websocket::error::closed) std::cerr << "Error: " << se.code().value() << std::endl;
                     break;
                 }
             }
-        }
 
-        {
-            std::lock_guard<std::mutex> lock(clients_mutex);
-            clients.erase(
-                std::remove(clients.begin(), clients.end(), ws),
-                clients.end());
-        }
+            {
+                std::lock_guard<std::mutex> lock(clients_mutex);
+                clients.erase(std::remove(clients.begin(), clients.end(), shared_from_this()), clients.end());
+            }
 
-		std::cout << "WebSocket connection closed." << std::endl;
-        return;
+            std::cout << "WebSocket connection closed." << std::endl;
+        }
     }
 
-    // HTTP処理
-    http::response<http::string_body> res{
-        http::status::ok, req.version()
-    };
-    res.set(http::field::server, "Beast");
-    res.set(http::field::content_type, "text/html");
-    res.body() = load_file("index.html");
-    res.prepare_payload();
-    http::write(socket, res);
-}
+    void deliver(std::vector<uint8_t> data) {
+        // 受け取ったデータをキューに溜める
+        std::lock_guard<std::mutex> lock(send_mutex_);
+        send_queue_.push_back(std::move(data));
+
+        if (!sending_) {
+            sending_ = true;
+            std::thread([self = shared_from_this()]() {
+                try {
+                    while (true) {
+                        // キューから順番に取り出す
+                        std::vector<uint8_t> packet;
+                        {
+                            std::lock_guard<std::mutex> lock(self->send_mutex_);
+                            if (self->send_queue_.empty()) {
+                                self->sending_ = false;
+                                return;
+                            }
+                            packet = std::move(self->send_queue_.front());
+                            self->send_queue_.erase(self->send_queue_.begin());
+                        }
+                        // 自分のwebsocketからのみ送信
+                        if (self->ws_ && self->ws_->is_open()) {
+                            self->ws_->binary(true);
+                            self->ws_->write(boost::asio::buffer(packet));
+                        }
+                    }
+                }
+                catch (...) {
+                    std::lock_guard<std::mutex> lock(self->send_mutex_);
+                    self->sending_ = false;
+                }
+                }).detach();
+        }
+    }
+};
 
 void show_qr(const char* text) {
     QRcode* qr = QRcode_encodeString(text, 0, QR_ECLEVEL_Q, QR_MODE_8, 1);
@@ -154,20 +180,32 @@ int main() {
 		memcpy(packet.data() + sizeof(double), data, size);
 
         std::lock_guard<std::mutex> lock(clients_mutex);
-
-        for (auto ws : clients) {
-            try {
-                ws->binary(true);
-                ws->write(boost::asio::buffer(packet));
-            }
-            catch (...) {}
-        }
+        for (auto& s : clients) s->deliver(packet); // 音声データを各sessionに送る
     });
 
-    while (1) {
+    while (true) {
         tcp::socket socket(ioc);
         acceptor.accept(socket);
         std::cout << "Accepted connection from " << socket.remote_endpoint() << std::endl;
-        std::thread(session, std::move(socket)).detach();
+
+        beast::flat_buffer buffer;
+        http::request<http::string_body> req;
+        http::read(socket, buffer, req);
+        std::cout << "Request target: " << req.target() << std::endl;
+        std::cout << "Is upgrade: " << websocket::is_upgrade(req) << std::endl;
+
+        if (websocket::is_upgrade(req) && req.target() == "/ws") {
+            // 接続ごとに1インスタンス生成する
+            auto s = std::make_shared<session>(std::move(socket));
+            std::thread([s, req = std::move(req)]() mutable {s->run(std::move(req));}).detach();
+        }
+        else {
+            http::response<http::string_body> res{ http::status::ok, req.version() };
+            res.set(http::field::server, "Beast");
+            res.set(http::field::content_type, "text/html");
+            res.body() = load_file("index.html");
+            res.prepare_payload();
+            http::write(socket, res);
+        }
     }
 }
