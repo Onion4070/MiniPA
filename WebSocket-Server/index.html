@@ -6,15 +6,27 @@ TARGET (ms): <input type="number" id="target" value="30" style="width:50px">
 <div id="delay"></div>
 
 <script>
-let ws;
-let ctx;
+let ws = null;
+let ctx = null;
 let nextTime = 0;
 let offset = null;
 let isAdjusting = false; // 補正フラグ
 
-function start(){
-  ctx = new AudioContext({latencyHint: 0.001 });
+async function start() {
+  // 古い接続を削除
+  if (ws) {
+    ws.onopen() = null;
+    ws.onclose();
+    ws = null
+  }
+  if (ctx) {
+    await ctx.close();
+    ctx = null;
+  }
 
+  // 新しく作り直す
+  ctx = new AudioContext({ latencyHint: 'interactive' });
+  if (ctx.state === 'suspended') await ctx.resume();
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.binaryType = "arraybuffer";
 
