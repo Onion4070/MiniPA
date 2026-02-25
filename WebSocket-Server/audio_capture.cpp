@@ -32,7 +32,7 @@ bool AudioCapture::start(Callback cb) {
             AUDCLNT_SHAREMODE_SHARED,
             AUDCLNT_STREAMFLAGS_LOOPBACK | 
             AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-            100000, // 100ms 
+            100000, // 10ms 
             0, 
             format, 
             nullptr);
