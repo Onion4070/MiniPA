@@ -186,10 +186,12 @@
     <ClCompile Include="net_utils.cpp" />
     <ClCompile Include="server.cpp" />
     <ClCompile Include="audio_capture.cpp" />
+    <ClCompile Include="session.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="audio_capture.h" />
     <ClInclude Include="net_utils.h" />
+    <ClInclude Include="session.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

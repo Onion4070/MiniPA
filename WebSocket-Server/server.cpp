@@ -11,98 +11,17 @@
 
 #include "audio_capture.h"
 #include "net_utils.h"
+#include "session.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace websocket = beast::websocket;
 using tcp = boost::asio::ip::tcp;
 
-class session;
-std::vector<std::shared_ptr<session>> clients;
-std::mutex clients_mutex;
-
 std::string load_file(const std::string& path) {
     std::ifstream t(path);
     return { std::istreambuf_iterator<char>(t),{} };
 }
-
-class session : public std::enable_shared_from_this<session> {
-    tcp::socket socket_;
-    std::shared_ptr<websocket::stream<tcp::socket>> ws_;
-    std::vector<std::vector<uint8_t>> send_queue_;
-    std::mutex send_mutex_;
-    bool sending_ = false;
-
-public:
-    explicit session(tcp::socket socket) : socket_(std::move(socket)) {}
-
-    void run(http::request<http::string_body> req) {
-        if (websocket::is_upgrade(req) && req.target() == "/ws") {
-            ws_ = std::make_shared<websocket::stream<tcp::socket>>(std::move(socket_));
-            ws_->accept(req);
-            {
-                std::lock_guard<std::mutex> lock(clients_mutex);
-                clients.push_back(shared_from_this());
-            }
-
-            std::cout << "WebSocket connection established." << std::endl;
-
-            while (true) {
-                try {
-                    beast::flat_buffer buf;
-                    ws_->read(buf);
-                }
-                catch (beast::system_error const& se) {
-                    if (se.code() != websocket::error::closed) std::cerr << "Error: " << se.code().value() << std::endl;
-                    break;
-                }
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(clients_mutex);
-                clients.erase(std::remove(clients.begin(), clients.end(), shared_from_this()), clients.end());
-            }
-
-            std::cout << "WebSocket connection closed." << std::endl;
-        }
-    }
-
-    void deliver(std::vector<uint8_t> data) {
-        // 受け取ったデータをキューに溜める
-        std::lock_guard<std::mutex> lock(send_mutex_);
-        send_queue_.push_back(std::move(data));
-
-        if (!sending_) {
-            sending_ = true;
-            std::thread([self = shared_from_this()]() {
-                try {
-                    while (true) {
-                        // キューから順番に取り出す
-                        std::vector<uint8_t> packet;
-                        {
-                            std::lock_guard<std::mutex> lock(self->send_mutex_);
-                            if (self->send_queue_.empty()) {
-                                self->sending_ = false;
-                                return;
-                            }
-                            packet = std::move(self->send_queue_.front());
-                            self->send_queue_.erase(self->send_queue_.begin());
-                        }
-                        // 自分のwebsocketからのみ送信
-                        if (self->ws_ && self->ws_->is_open()) {
-                            self->ws_->binary(true);
-                            self->ws_->write(boost::asio::buffer(packet));
-                        }
-                    }
-                }
-                catch (...) {
-                    std::lock_guard<std::mutex> lock(self->send_mutex_);
-                    self->sending_ = false;
-                }
-                }).detach();
-        }
-    }
-};
 
 void show_qr(const char* text) {
     QRcode* qr = QRcode_encodeString(text, 0, QR_ECLEVEL_Q, QR_MODE_8, 1);
@@ -179,8 +98,8 @@ int main() {
 		memcpy(packet.data(), &ts, sizeof(double));
 		memcpy(packet.data() + sizeof(double), data, size);
 
-        std::lock_guard<std::mutex> lock(clients_mutex);
-        for (auto& s : clients) s->deliver(packet); // 音声データを各sessionに送る
+        std::lock_guard<std::mutex> lock(Session::clients_mutex);
+        for (auto& s : Session::clients) s->deliver(packet); // 音声データを各Sessionに送る
     });
 
     while (true) {
@@ -196,7 +115,7 @@ int main() {
 
         if (websocket::is_upgrade(req) && req.target() == "/ws") {
             // 接続ごとに1インスタンス生成する
-            auto s = std::make_shared<session>(std::move(socket));
+            auto s = std::make_shared<Session>(std::move(socket));
             std::thread([s, req = std::move(req)]() mutable {s->run(std::move(req));}).detach();
         }
         else {
