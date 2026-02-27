@@ -28,7 +28,12 @@ int main() {
     SetConsoleOutputCP(CP_UTF8);
 
     // http://{ server IP }:9001 のQRコードを表示
-	std::string localIP = NetUtils::GetLocalIP();   
+	std::string localIP = NetUtils::GetLocalIP();
+    if (localIP.empty()) {
+        std::cerr << "Failed to get local IP address.\n";
+        return 1;
+	}
+
 	std::string url = "http://" + localIP + ":9001";
 	TerminalQR::show(url.c_str());
 
