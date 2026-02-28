@@ -2,6 +2,7 @@
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
 #include <memory>
+#include <queue>
 #include <vector>
 #include <mutex>
 #include <condition_variable>
@@ -15,7 +16,7 @@ using tcp = boost::asio::ip::tcp;
 class Session : public std::enable_shared_from_this<Session> {
     tcp::socket socket_;
     std::shared_ptr<websocket::stream<tcp::socket>> ws_;
-    std::vector<std::vector<uint8_t>> send_queue_;
+    std::queue<std::vector<uint8_t>> send_queue_;
     std::mutex send_mutex_;
     std::condition_variable cv_;
     bool stop_threads_ = false;

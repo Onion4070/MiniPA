@@ -62,10 +62,8 @@ void Session::run(http::request<http::string_body> req) {
 
 void Session::deliver(std::vector<uint8_t> data) {
     std::lock_guard<std::mutex> lock(send_mutex_);
-    if (send_queue_.size() >= 10) {
-        send_queue_.erase(send_queue_.begin()); // 古いデータを捨てる
-    }
-    send_queue_.push_back(std::move(data));
+    if (send_queue_.size() >= 10) send_queue_.pop(); // 古いデータを捨てる
+    send_queue_.push(std::move(data));
     cv_.notify_one();
 }
 
@@ -78,7 +76,7 @@ void Session::send_loop() {
                 cv_.wait(lock, [this] { return !send_queue_.empty() || stop_threads_; });
                 if (stop_threads_) return;
                 packet = std::move(send_queue_.front());
-                send_queue_.erase(send_queue_.begin());
+                send_queue_.pop();
             }
             if (ws_ && ws_->is_open()) {
                 ws_->binary(true);
