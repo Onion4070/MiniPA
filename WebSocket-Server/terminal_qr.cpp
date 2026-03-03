@@ -1,8 +1,12 @@
 ﻿#include "terminal_qr.h"
 #include <iostream>
 #include <qrencode.h>
+#include <Windows.h>
 
 void TerminalQR::show(const char* text) {
+    UINT cp = GetConsoleOutputCP();
+	SetConsoleOutputCP(CP_UTF8);
+
     QRcode* qr = QRcode_encodeString(text, 0, QR_ECLEVEL_Q, QR_MODE_8, 1);
     if (!qr) {
         std::cerr << "Failed to generate QR code.\n";
@@ -50,4 +54,5 @@ void TerminalQR::show(const char* text) {
     }
 
     QRcode_free(qr);
+	SetConsoleOutputCP(cp);
 }

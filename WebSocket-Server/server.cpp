@@ -6,7 +6,6 @@
 #include <vector>
 #include <mutex>
 #include <algorithm>
-#include <Windows.h>
 
 #include "audio_capture.h"
 #include "net_utils.h"
@@ -24,8 +23,6 @@ std::string load_file(const std::string& path) {
 }
 
 int main() {
-
-    SetConsoleOutputCP(CP_UTF8);
 
     // http://{ server IP }:9001 のQRコードを表示
 	std::string localIP = NetUtils::GetLocalIP();
