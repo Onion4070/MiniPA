@@ -47,7 +47,10 @@ void Session::run(http::request<http::string_body> req) {
                 beast::flat_buffer buf;
                 ws_->read(buf);
             }
-            catch (...) { break; }
+            catch (std::exception& e) {
+				std::cerr << "RUN EXCEPTION: " << e.what() << std::endl;
+                break;
+            }
         }
 
         stop();
@@ -84,5 +87,7 @@ void Session::send_loop() {
             }
         }
     }
-    catch (...) {}
+    catch (std::exception& e) {
+		std::cerr << "SEND_LOOP EXCEPTION: " << e.what() << std::endl;
+    }
 }
