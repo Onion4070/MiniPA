@@ -22,6 +22,36 @@ std::string load_file(const std::string& path) {
     return { std::istreambuf_iterator<char>(t),{} };
 }
 
+// ── HTTP接続を1件処理する（スレッドで呼ぶ） ──────────────────
+void handle_connection(tcp::socket socket) {
+    try {
+        std::cout << "Accepted connection from " << socket.remote_endpoint() << std::endl;
+
+        beast::flat_buffer buffer;
+        http::request<http::string_body> req;
+        http::read(socket, buffer, req);
+
+        if (websocket::is_upgrade(req) && req.target() == "/ws") {
+            // WebSocketセッション開始
+            auto s = std::make_shared<Session>(std::move(socket));
+            s->run(std::move(req));   // run()は内部でスレッドを立てて待機
+        }
+        else {
+            // 通常のHTTPレスポンス
+            http::response<http::string_body> res{ http::status::ok, req.version() };
+            res.set(http::field::server, "Beast");
+            res.set(http::field::content_type, "text/html; charset=utf-8");
+            res.set(http::field::cache_control, "no-store");
+            res.body() = load_file("index.html");
+            res.prepare_payload();
+            http::write(socket, res);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "handle_connection error: " << e.what() << std::endl;
+    }
+}
+
 int main() {
 
     // http://{ server IP }:9001 のQRコードを表示
@@ -57,26 +87,8 @@ int main() {
     while (true) {
         tcp::socket socket(ioc);
         acceptor.accept(socket);
-        std::cout << "Accepted connection from " << socket.remote_endpoint() << std::endl;
-
-        beast::flat_buffer buffer;
-        http::request<http::string_body> req;
-        http::read(socket, buffer, req);
-        std::cout << "Request target: " << req.target() << std::endl;
-        std::cout << "Is upgrade: " << websocket::is_upgrade(req) << std::endl;
-
-        if (websocket::is_upgrade(req) && req.target() == "/ws") {
-            // 接続ごとに1インスタンス生成する
-            auto s = std::make_shared<Session>(std::move(socket));
-            std::thread([s, req = std::move(req)]() mutable {s->run(std::move(req));}).detach();
-        }
-        else {
-            http::response<http::string_body> res{ http::status::ok, req.version() };
-            res.set(http::field::server, "Beast");
-            res.set(http::field::content_type, "text/html");
-            res.body() = load_file("index.html");
-            res.prepare_payload();
-            http::write(socket, res);
-        }
+        
+        // 各接続を独立スレッドで処理し，acceptはすぐ次を待てる
+        std::thread(handle_connection, std::move(socket)).detach();
     }
 }
