@@ -12,11 +12,7 @@ Session::~Session() {
 }
 
 void Session::stop() {
-    {
-        std::lock_guard<std::mutex> lock(send_mutex_);
-        if (stop_threads_) return;
-        stop_threads_ = true;
-    }
+    if (stop_threads_.exchange(true)) return;
     cv_.notify_all();
     if (write_thread_.joinable()) write_thread_.join();
 }

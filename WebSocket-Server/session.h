@@ -7,6 +7,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
+#include <atomic>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -19,7 +20,7 @@ class Session : public std::enable_shared_from_this<Session> {
     std::queue<std::vector<uint8_t>> send_queue_;
     std::mutex send_mutex_;
     std::condition_variable cv_;
-    bool stop_threads_ = false;
+    std::atomic<bool> stop_threads_ = false;
     std::thread write_thread_;
 
 public:
