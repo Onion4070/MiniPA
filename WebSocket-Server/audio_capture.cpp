@@ -10,23 +10,28 @@ bool AudioCapture::start(Callback cb) {
 
     std::thread([this] {
 
-        CoInitialize(nullptr);
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(hr)) return; // 失敗したら即終了
 
         IMMDeviceEnumerator* enumerator = nullptr;
-        CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
-            CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
-            (void**)&enumerator);
+        hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+            CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&enumerator);
+        if (FAILED(hr) || !enumerator) return;
 
         IMMDevice* device = nullptr;
         enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+        if (!device) return;
 
         IAudioClient* client = nullptr;
         device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client);
+        if (!client) return;
 
         WAVEFORMATEX* format;
         client->GetMixFormat(&format);
+        if (!format) return;
 
         HANDLE hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        if (hEvent == NULL) return; // NULLチェック追加
 
         client->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
@@ -40,6 +45,7 @@ bool AudioCapture::start(Callback cb) {
 
         IAudioCaptureClient* capture;
         client->GetService(__uuidof(IAudioCaptureClient), (void**)&capture);
+        if (!capture) return;
 
         client->Start();
 
