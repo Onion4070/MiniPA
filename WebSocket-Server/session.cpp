@@ -23,7 +23,7 @@ void Session::stop() {
 
 void Session::run(http::request<http::string_body> req) {
     if (websocket::is_upgrade(req) && req.target() == "/ws") {
-        ws_ = std::make_shared<websocket::stream<tcp::socket>>(std::move(socket_));
+        ws_ = std::make_unique<websocket::stream<tcp::socket>>(std::move(socket_));
         ws_->accept(req);
 
         beast::get_lowest_layer(*ws_).set_option(tcp::no_delay(true));

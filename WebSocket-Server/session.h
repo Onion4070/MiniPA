@@ -15,7 +15,7 @@ using tcp = boost::asio::ip::tcp;
 
 class Session : public std::enable_shared_from_this<Session> {
     tcp::socket socket_;
-    std::shared_ptr<websocket::stream<tcp::socket>> ws_;
+    std::unique_ptr<websocket::stream<tcp::socket>> ws_;
     std::queue<std::vector<uint8_t>> send_queue_;
     std::mutex send_mutex_;
     std::condition_variable cv_;
