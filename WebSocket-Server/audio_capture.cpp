@@ -26,6 +26,18 @@ bool AudioCapture::start(Callback cb) {
         WAVEFORMATEX* format;
         client->GetMixFormat(&format);
 
+        WAVEFORMATEXTENSIBLE* wfext = nullptr;
+        if (format->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            wfext = reinterpret_cast<WAVEFORMATEXTENSIBLE*>(format);
+            wfext->SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+        }
+        format->wBitsPerSample = 32;
+        format->nSamplesPerSec = 48000;
+        format->nChannels = 2;
+        format->nBlockAlign = format->nChannels * format->wBitsPerSample / 8;
+        format->nAvgBytesPerSec = format->nSamplesPerSec * format->nBlockAlign;
+        if (wfext) wfext->Samples.wValidBitsPerSample = 32;
+
         HANDLE hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
         client->Initialize(

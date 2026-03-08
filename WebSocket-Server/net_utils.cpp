@@ -97,6 +97,7 @@ bool NetUtils::isVirtualAdapter(PIP_ADAPTER_ADDRESSES p) {
         if (wcsstr(nameLower, L"openstack") != NULL)  return true;
         if (wcsstr(nameLower, L"virtual") != NULL
             && wcsstr(nameLower, L"switch") != NULL)  return true;
+        if (wcsstr(nameLower, L"vethernet") != NULL) return true;
     }
 
     return false;

@@ -70,21 +70,26 @@ void Session::deliver(std::vector<uint8_t> data) {
 }
 
 void Session::send_loop() {
-    try {
-        while (!stop_threads_) {
-            std::vector<uint8_t> packet;
-            {
-                std::unique_lock<std::mutex> lock(send_mutex_);
-                cv_.wait(lock, [this] { return !send_queue_.empty() || stop_threads_; });
-                if (stop_threads_) return;
-                packet = std::move(send_queue_.front());
-                send_queue_.erase(send_queue_.begin());
-            }
+    while (!stop_threads_) {
+        std::vector<uint8_t> packet;
+        {
+            std::unique_lock<std::mutex> lock(send_mutex_);
+            cv_.wait(lock, [this] { return !send_queue_.empty() || stop_threads_; });
+            if (stop_threads_) return;
+            packet = std::move(send_queue_.front());
+            send_queue_.erase(send_queue_.begin());
+        }
+        // ← ws_が有効かつopenの場合のみ送信、例外で即終了
+        try {
             if (ws_ && ws_->is_open()) {
                 ws_->binary(true);
                 ws_->write(boost::asio::buffer(packet));
             }
         }
+        catch (const boost::system::system_error& e) {
+            std::cerr << "send_loop write error: " << e.what() << std::endl;
+            stop_threads_ = true; // ← エラー時はループを終了
+            return;
+        }
     }
-    catch (...) {}
 }

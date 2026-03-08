@@ -150,13 +150,14 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>qrencode.lib;ws2_32.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>qrencode.lib;ws2_32.lib;iphlpapi.lib;opus.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
-      <Command>copy /Y "C:\vcpkg\installed\x64-windows\bin\qrencode.dll" "$(OutDir)"</Command>
+      <Command>copy /Y "C:\vcpkg\installed\x64-windows\bin\qrencode.dll" "$(OutDir)"
+copy /Y "C:\vcpkg\installed\x64-windows\bin\opus.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
     <PreBuildEvent>
-      <Message>libqrencodeのdllをコピー</Message>
+      <Message>libqrencodeとopusのdllをコピー</Message>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">

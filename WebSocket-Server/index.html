@@ -1,114 +1,203 @@
 ﻿<!DOCTYPE html>
 <html lang="ja">
 <body>
-<button onclick="start()">Start</button>
+<button id="startBtn">Start</button>
 TARGET (ms): <input type="number" id="target" value="30" style="width:50px">
-<div id="delay"></div>
+<br>
+<div id="status" style="color:blue; margin:4px 0"></div>
+<div id="error"  style="color:red;  margin:4px 0"></div>
+<div id="delay"  style="margin:4px 0"></div>
+<div id="debug"  style="color:gray; font-size:12px; white-space:pre"></div>
 
 <script>
-let ws = null;
-let ctx = null;
-let nextTime = 0;
-let offset = null;
-let isAdjusting = false; // 補正フラグ
+// ── UI helpers ────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+function setStatus(msg) { $("status").textContent = msg; }
+function setError(msg)  { $("error").textContent  = msg; }
+function addDebug(msg)  {
+  const ts = performance.now().toFixed(0);
+  $("debug").textContent = `[${ts}ms] ${msg}\n` + $("debug").textContent.split("\n").slice(0,30).join("\n");
+}
 
+let ws=null, ctx=null, decoder=null, wasmDec=null;
+let useWasm=false, nextTime=0, offset=null, isAdjusting=false;
+const pendingMeta = [];
+
+// ── 再生スケジューラ ───────────────────────────────────────
+function scheduleFloat32(left, right, sampleRate, sendTime, recvTime) {
+  const frames = left.length;
+  const buf = ctx.createBuffer(2, frames, sampleRate);
+  buf.getChannelData(0).set(left);
+  buf.getChannelData(1).set(right);
+
+  const netDelay    = recvTime - sendTime - offset;
+  const now         = ctx.currentTime;
+  const bufferDelay = nextTime - now;
+  const TARGET = (parseFloat($("target").value) || 30) / 1000;
+
+  const START_THRESHOLD = 0.015, STOP_THRESHOLD = 0.005;
+  const CORRECTION_STEP = 0.002, MAX_CORRECTION  = 0.050;
+  const error = bufferDelay - TARGET;
+
+  if (Math.abs(error) > START_THRESHOLD) isAdjusting = true;
+  if (Math.abs(error) < STOP_THRESHOLD)  isAdjusting = false;
+  if (bufferDelay < 0)      nextTime = now + TARGET;
+  if (bufferDelay > 0.200) { nextTime = now + TARGET; isAdjusting = false; }
+  if (isAdjusting && Math.abs(error) > STOP_THRESHOLD) {
+    let c = Math.sign(error) * Math.min(CORRECTION_STEP, Math.abs(error) * 0.1);
+    nextTime -= Math.max(-MAX_CORRECTION, Math.min(MAX_CORRECTION, c));
+  }
+
+  $("delay").textContent =
+    `total ${((netDelay+bufferDelay)*1000).toFixed(1)} ms | ` +
+    `net ${(netDelay*1000).toFixed(1)} ms / buf ${(bufferDelay*1000).toFixed(1)} ms`;
+
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start(nextTime);
+  nextTime += buf.duration;
+}
+
+// ── native AudioDecoder output ────────────────────────────
+function onNativeOutput(audioData) {
+  const item = pendingMeta.shift();
+  if (!item) { audioData.close(); return; }
+  const frames = audioData.numberOfFrames;
+  const ch     = audioData.numberOfChannels;
+  const sr     = audioData.sampleRate;
+  let left, right;
+  if (audioData.format === "f32-planar") {
+    left  = new Float32Array(frames);
+    right = new Float32Array(frames);
+    audioData.copyTo(left,  { planeIndex: 0 });
+    audioData.copyTo(right, { planeIndex: ch > 1 ? 1 : 0 });
+  } else {
+    const interleaved = new Float32Array(frames * ch);
+    audioData.copyTo(interleaved, { planeIndex: 0 });
+    left  = new Float32Array(frames);
+    right = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) {
+      left[i]  = interleaved[i * ch];
+      right[i] = interleaved[i * ch + (ch > 1 ? 1 : 0)];
+    }
+  }
+  audioData.close();
+  scheduleFloat32(left, right, sr, item.sendTime, item.recvTime);
+}
+
+// ── WASM OpusDecoder ロード ────────────────────────────────
+// ESMビルドをdynamic importで取得
+async function loadWasmDecoder() {
+  try {
+    const mod = await import("https://cdn.jsdelivr.net/npm/wasm-audio-decoders@9.0.0/dist/opus-decoder.min.js");
+    const Cls = mod.OpusDecoder ?? mod.default?.OpusDecoder ?? mod.default;
+    if (!Cls) throw new Error("OpusDecoder class not found in module");
+    addDebug(`WASM module loaded, class: ${Cls.name}`);
+    return Cls;
+  } catch(e) {
+    throw new Error(`WASM load failed: ${e.message}`);
+  }
+}
+
+// ── デコーダ初期化 ─────────────────────────────────────────
+async function initDecoder() {
+  // native AudioDecoder を試みる
+  if (typeof AudioDecoder !== "undefined") {
+    try {
+      const sup = await AudioDecoder.isConfigSupported({
+        codec: "opus", sampleRate: 48000, numberOfChannels: 2
+      });
+      addDebug(`AudioDecoder.isConfigSupported: ${sup.supported}`);
+      if (sup.supported) {
+        decoder = new AudioDecoder({
+          output: onNativeOutput,
+          error: e => { setError(`AudioDecoder: ${e.message ?? e}`); addDebug(`AudioDecoder err: ${e}`); }
+        });
+        decoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+        useWasm = false;
+        setStatus("デコーダ: native AudioDecoder");
+        return;
+      }
+    } catch(e) { addDebug(`AudioDecoder probe failed: ${e}`); }
+  } else {
+    addDebug("AudioDecoder: not available in this browser");
+  }
+
+  // フォールバック: WASM
+  setStatus("デコーダ: WASM (読み込み中...)");
+  try {
+    const OpusDecoderClass = await loadWasmDecoder();
+    wasmDec = new OpusDecoderClass();
+    await wasmDec.ready;
+    useWasm = true;
+    setStatus("デコーダ: WASM OpusDecoder");
+    addDebug("WASM OpusDecoder ready");
+  } catch(e) {
+    setError(`デコーダ初期化失敗: ${e.message}`);
+    addDebug(`initDecoder failed: ${e}`);
+    throw e;
+  }
+}
+
+// ── メイン ────────────────────────────────────────────────
 async function start() {
-  // 古い接続を削除
-  if (ws) {
-    ws.onopen() = null;
-    ws.onclose();
-    ws = null
-  }
-  if (ctx) {
-    await ctx.close();
-    ctx = null;
-  }
+  setError("");
+  if (ws)      { ws.onmessage = null; ws.close(); ws = null; }
+  if (decoder) { try { decoder.close(); } catch(_){} decoder = null; }
+  if (wasmDec) { try { wasmDec.free();  } catch(_){} wasmDec = null; }
+  if (ctx)     { await ctx.close(); ctx = null; }
+  offset = null; nextTime = 0; isAdjusting = false;
+  pendingMeta.length = 0;
 
-  // 新しく作り直す
-  ctx = new AudioContext({ latencyHint: 'interactive' });
-  if (ctx.state === 'suspended') await ctx.resume();
+  addDebug(`UA: ${navigator.userAgent.substring(0,80)}`);
+
+  ctx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+  addDebug(`AudioContext: state=${ctx.state} sr=${ctx.sampleRate}`);
+  if (ctx.state === "suspended") { await ctx.resume(); addDebug(`resumed: ${ctx.state}`); }
+
+  try {
+    await initDecoder();
+  } catch(e) { return; }
+
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.binaryType = "arraybuffer";
+  ws.onopen  = () => addDebug("WS connected");
+  ws.onclose = e => { setError(`WS closed: ${e.code}`); addDebug(`WS close: ${e.code} ${e.reason}`); };
+  ws.onerror = () => { setError("WS error"); addDebug("WS error event"); };
 
-  ws.onopen = () => console.log("connected");
-
-  ws.onmessage = e => {
-    const view = new DataView(e.data);
-    // サーバ送信時刻
+  ws.onmessage = async e => {
+    const view     = new DataView(e.data);
     const sendTime = view.getFloat64(0, true);
-    // クライアント受信時刻
-    const recvTime = performance.now()/1000;
-    // オフセット推定
-    if (offset === null || recvTime - sendTime < offset)
-      offset = recvTime - sendTime;
+    const opusLen  = view.getUint16(8, true);
+    const opusData = new Uint8Array(e.data, 10, opusLen);
+    const recvTime = performance.now() / 1000;
 
-    // 通信遅延
-    const netDelay = recvTime - sendTime - offset;
+    if (offset === null || recvTime - sendTime < offset) offset = recvTime - sendTime;
 
-    const float32 = new Float32Array(e.data, 8);
-
-    // ステレオのバッファを作成
-    const frames = float32.length / 2;
-    const buf = ctx.createBuffer(2, frames, 48000);
-    const ch0 = buf.getChannelData(0);
-    const ch1 = buf.getChannelData(1);
-
-    for (let i=0, j=0; i < frames; i++, j+=2) {
-      ch0[i] = float32[j];
-      ch1[i] = float32[j+1];
+    if (useWasm) {
+      try {
+        const r = await wasmDec.decode(opusData);
+        if (r.samplesDecoded > 0) {
+          const L = r.channelData[0];
+          const R = r.channelData[1] ?? r.channelData[0];
+          scheduleFloat32(L, R, r.sampleRate, sendTime, recvTime);
+        }
+      } catch(e) { setError(`WASM decode: ${e.message}`); addDebug(`WASM err: ${e}`); }
+    } else {
+      pendingMeta.push({ sendTime, recvTime });
+      try {
+        decoder.decode(new EncodedAudioChunk({
+          type: "key",
+          timestamp: Math.round(sendTime * 1_000_000),
+          data: opusData,
+        }));
+      } catch(e) { setError(`decode: ${e.message}`); addDebug(`decode err: ${e}`); }
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-
-    // 遅延防止：再生時刻を詰める
-    const now = ctx.currentTime;
-
-    const bufferDelay = nextTime - now;
-    const total = netDelay + bufferDelay;
-
-    const TARGET = (parseFloat(document.getElementById('target').value) || 30) / 1000;
-    if (isNaN(TARGET)) TARGET = 0.030   // 空欄時は30msとして動作させる
-
-    const START_THRESHOLD = 0.015;  // 補正開始閾値: 15ms超過で開始
-    const STOP_THRESHOLD  = 0.005;  // 補正終了閾値: 5ms以内で停止
-    const CORRECTION_STEP = 0.002;  // 補正ステップ: 2ms
-    const MAX_CORRECTION  = 0.050;  // 最大補正量: 50ms
-    
-    const error = bufferDelay - TARGET;  // 目標値からの誤差
-    
-    // ヒステリシス制御
-    if (Math.abs(error) > START_THRESHOLD) isAdjusting = true;   // 補正開始
-    if (Math.abs(error) < STOP_THRESHOLD)  isAdjusting = false;  // 補正終了
-
-    if (bufferDelay < 0) {
-      // 早すぎ
-      nextTime = now + TARGET;
-    }
-
-    if (bufferDelay > 0.200) {
-      // 200ms以上の遅延は強制リセット
-      nextTime = now + TARGET;
-      isAdjusting = false;
-    }
-
-    if (isAdjusting && Math.abs(error) > STOP_THRESHOLD) {
-      let correction = Math.sign(error) * Math.min(CORRECTION_STEP, Math.abs(error) * 0.1);  // 補正量を計算
-      correction = Math.max(-MAX_CORRECTION, Math.min(MAX_CORRECTION, correction));          // 補正量を制限()
-      nextTime -= correction; // 補正を適用
-    }
-
-    document.getElementById("delay").innerHTML = `
-    total ${ (total*1000).toFixed(1)} ms<br>
-    network ${ (netDelay*1000).toFixed(1)} ms / buffer ${ (bufferDelay*1000).toFixed(1)} ms<br>
-    now: ${now.toFixed(2)} / next: ${nextTime.toFixed(2)}
-    `;
-
-    src.start(nextTime);
-    nextTime += buf.duration;
   };
 }
+
+$("startBtn").addEventListener("click", start);
 </script>
 </body>
 </html>
