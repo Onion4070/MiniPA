@@ -1,0 +1,13 @@
+This software uses the following open source libraries:
+
+opus-decoder (https://github.com/eshaz/wasm-audio-decoders)
+  Copyright (c) eshaz
+  Licensed under the MIT License
+
+libopus (https://opus-codec.org/)
+  Copyright (c) Xiph.Org Foundation and contributors
+  Licensed under the BSD 3-Clause License
+
+puff/zlib (https://github.com/madler/zlib)
+  Copyright (c) Mark Adler
+  Licensed under the zlib License
