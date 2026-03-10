@@ -9,6 +9,9 @@ TARGET (ms): <input type="number" id="target" value="30" style="width:50px">
 <div id="delay"  style="margin:4px 0"></div>
 <div id="debug"  style="color:gray; font-size:12px; white-space:pre"></div>
 
+<!-- wasm opus-decoder charset="UTF-8" が必須 -->
+<script src="https://cdn.jsdelivr.net/npm/opus-decoder@0.7.11/dist/opus-decoder.min.js" charset="UTF-8"></script>
+
 <script>
 // ── UI helpers ────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -86,24 +89,15 @@ function onNativeOutput(audioData) {
   scheduleFloat32(left, right, sr, item.sendTime, item.recvTime);
 }
 
-// ── WASM OpusDecoder ロード ────────────────────────────────
-// ESMビルドをdynamic importで取得
-async function loadWasmDecoder() {
-  try {
-    const mod = await import("https://cdn.jsdelivr.net/npm/wasm-audio-decoders@9.0.0/dist/opus-decoder.min.js");
-    const Cls = mod.OpusDecoder ?? mod.default?.OpusDecoder ?? mod.default;
-    if (!Cls) throw new Error("OpusDecoder class not found in module");
-    addDebug(`WASM module loaded, class: ${Cls.name}`);
-    return Cls;
-  } catch(e) {
-    throw new Error(`WASM load failed: ${e.message}`);
-  }
+// ── Secure Contextかどうか確認 ────────────────────────────
+function isSecureContext() {
+  return window.isSecureContext === true;
 }
 
 // ── デコーダ初期化 ─────────────────────────────────────────
 async function initDecoder() {
-  // native AudioDecoder を試みる
-  if (typeof AudioDecoder !== "undefined") {
+  // Secure Context かつ AudioDecoder が使える場合のみnativeを試みる
+  if (isSecureContext() && typeof AudioDecoder !== "undefined") {
     try {
       const sup = await AudioDecoder.isConfigSupported({
         codec: "opus", sampleRate: 48000, numberOfChannels: 2
@@ -121,17 +115,20 @@ async function initDecoder() {
       }
     } catch(e) { addDebug(`AudioDecoder probe failed: ${e}`); }
   } else {
-    addDebug("AudioDecoder: not available in this browser");
+    addDebug(`AudioDecoder skip: secureContext=${isSecureContext()}, available=${typeof AudioDecoder !== "undefined"}`);
   }
 
-  // フォールバック: WASM
-  setStatus("デコーダ: WASM (読み込み中...)");
+  // フォールバック: WASM (scriptタグで読み込み済みのOpusDecoderを使用)
+  setStatus("デコーダ: WASM (初期化中...)");
   try {
-    const OpusDecoderClass = await loadWasmDecoder();
+    // scriptタグ読み込みでwindow.OpusDecoderとして展開される
+    const OpusDecoderClass = window["opus-decoder"]?.OpusDecoder;
+    if (!OpusDecoderClass) throw new Error("window['opus-decoder'].OpusDecoder が見つかりません");
+    
     wasmDec = new OpusDecoderClass();
     await wasmDec.ready;
     useWasm = true;
-    setStatus("デコーダ: WASM OpusDecoder");
+    setStatus("デコーダ: WASM Audio Decoders opus-decoder");
     addDebug("WASM OpusDecoder ready");
   } catch(e) {
     setError(`デコーダ初期化失敗: ${e.message}`);
@@ -140,7 +137,6 @@ async function initDecoder() {
   }
 }
 
-// ── メイン ────────────────────────────────────────────────
 async function start() {
   setError("");
   if (ws)      { ws.onmessage = null; ws.close(); ws = null; }
@@ -151,6 +147,7 @@ async function start() {
   pendingMeta.length = 0;
 
   addDebug(`UA: ${navigator.userAgent.substring(0,80)}`);
+  addDebug(`secureContext: ${isSecureContext()}`);  // ← HTTP環境での確認用
 
   ctx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
   addDebug(`AudioContext: state=${ctx.state} sr=${ctx.sampleRate}`);
@@ -177,13 +174,13 @@ async function start() {
 
     if (useWasm) {
       try {
-        const r = await wasmDec.decode(opusData);
+        const r = wasmDec.decodeFrame(opusData);  // 同期・1フレーム単位
         if (r.samplesDecoded > 0) {
           const L = r.channelData[0];
           const R = r.channelData[1] ?? r.channelData[0];
           scheduleFloat32(L, R, r.sampleRate, sendTime, recvTime);
         }
-      } catch(e) { setError(`WASM decode: ${e.message}`); addDebug(`WASM err: ${e}`); }
+      } catch(err) { setError(`WASM decode: ${err.message}`); addDebug(`WASM err: ${err}`); }
     } else {
       pendingMeta.push({ sendTime, recvTime });
       try {
@@ -192,7 +189,7 @@ async function start() {
           timestamp: Math.round(sendTime * 1_000_000),
           data: opusData,
         }));
-      } catch(e) { setError(`decode: ${e.message}`); addDebug(`decode err: ${e}`); }
+      } catch(err) { setError(`decode: ${err.message}`); addDebug(`decode err: ${err}`); }
     }
   };
 }
