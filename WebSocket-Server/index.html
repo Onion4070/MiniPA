@@ -1,0 +1,609 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniPA</title>
+<!-- wasm opus-decoder: charset="UTF-8" が必須 -->
+<script src="https://cdn.jsdelivr.net/npm/opus-decoder@0.7.11/dist/opus-decoder.min.js" charset="UTF-8"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&display=swap');
+:root {
+  --bg:#0a0a0f;--panel:#111118;--border:#1e1e2e;
+  --accent:#00e5ff;--text:#c8c8d8;--muted:#4a4a6a;
+  --good:#00e676;--warn:#ffab40;--bad:#ff1744;
+  --col-total:#00e5ff;--col-net:#7c3aed;--col-buf:#00e676;--col-jitter:#ffab40;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:12px;padding:20px}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:linear-gradient(rgba(0,229,255,.025) 1px,transparent 1px),
+             linear-gradient(90deg,rgba(0,229,255,.025) 1px,transparent 1px);
+  background-size:32px 32px}
+
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  padding:20px 24px;width:100%;max-width:560px;position:relative}
+.card::after{content:'';position:absolute;top:0;left:20%;right:20%;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.35}
+
+.header{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);
+  margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.header-left{display:flex;align-items:center;gap:8px}
+.header-left::before{content:'';width:5px;height:5px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.dec-badge{font-size:8px;padding:2px 7px;border-radius:3px;letter-spacing:.1em;
+  background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);color:var(--accent)}
+.dec-badge.wasm{background:rgba(255,171,64,.1);border-color:rgba(255,171,64,.3);color:var(--warn)}
+
+#startBtn{width:100%;padding:11px;border-radius:8px;border:1px solid var(--accent);
+  background:transparent;color:var(--accent);font-family:'JetBrains Mono',monospace;
+  font-size:12px;letter-spacing:.15em;cursor:pointer;transition:box-shadow .2s;margin-bottom:14px}
+#startBtn:hover{box-shadow:0 0 16px rgba(0,229,255,.2)}
+#startBtn.on{border-color:var(--good);color:var(--good);box-shadow:0 0 10px rgba(0,230,118,.15)}
+
+.ctrl-row{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+  background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px;
+  margin-bottom:8px;font-size:9px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+.ctrl-row input[type=number]{background:transparent;border:1px solid var(--border);
+  border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;
+  font-size:11px;padding:3px 7px;width:66px;text-align:right;outline:none}
+.ctrl-row input:focus{border-color:var(--accent)}
+
+#viz{width:100%;height:24px;margin-bottom:12px;border-radius:4px}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.stat{padding:10px 12px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px}
+.stat-label{font-size:7px;letter-spacing:.15em;color:var(--muted);text-transform:uppercase;margin-bottom:4px}
+.stat-value{font-size:16px;font-weight:600;line-height:1;transition:color .3s}
+.stat-unit{font-size:9px;color:var(--muted);margin-left:1px}
+.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+
+.stats2{display:grid;grid-template-columns:1fr 1fr 2fr;gap:6px}
+.jbar-wrap{height:6px;background:rgba(255,255,255,.05);border-radius:3px;
+  margin-top:6px;overflow:hidden}
+.jbar{height:100%;border-radius:3px;transition:width .15s,background .4s;background:var(--good)}
+
+#status{font-size:9px;letter-spacing:.1em;margin-top:10px;min-height:12px}
+#status.ok {color:var(--good)}
+#status.err{color:var(--bad)}
+#status.inf{color:var(--muted)}
+
+#debug{font-size:8px;color:var(--muted);white-space:pre;max-height:72px;
+  overflow:hidden;margin-top:8px;line-height:1.5;opacity:.6}
+
+.graph-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  padding:16px 20px;width:100%;max-width:560px}
+.graph-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.graph-title{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.legend{display:flex;gap:12px}
+.leg{display:flex;align-items:center;gap:4px;font-size:8px;letter-spacing:.1em;color:var(--muted)}
+.leg-dot{width:7px;height:7px;border-radius:50%}
+.graph-wrap{position:relative}
+.y-axis{position:absolute;left:0;top:0;bottom:0;width:28px;
+  display:flex;flex-direction:column;justify-content:space-between;padding:4px 0}
+.y-label{font-size:7px;color:var(--muted);text-align:right;padding-right:4px;line-height:1}
+.graph-inner{margin-left:28px}
+#graph{width:100%;border-radius:6px;display:block}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header">
+    <div class="header-left">MiniPA</div>
+    <div class="dec-badge" id="decBadge">--</div>
+  </div>
+
+  <button id="startBtn" onclick="toggle()">&#9654;  START</button>
+  <canvas id="viz" width="512" height="24"></canvas>
+
+  <div class="ctrl-row">
+    <span>Target latency</span>
+    <div style="display:flex;align-items:center;gap:5px">
+      <input type="number" id="target" value="60" min="20" max="500">
+      <span style="font-size:9px;color:var(--muted)">ms</span>
+    </div>
+  </div>
+  <div class="ctrl-row">
+    <span>Jitter buffer</span>
+    <div style="display:flex;align-items:center;gap:5px">
+      <input type="number" id="jitterBuf" value="40" min="10" max="200">
+      <span style="font-size:9px;color:var(--muted)">ms</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Total</div>
+      <div class="stat-value" id="v-total">--<span class="stat-unit">ms</span></div></div>
+    <div class="stat"><div class="stat-label">Network</div>
+      <div class="stat-value" id="v-net">--<span class="stat-unit">ms</span></div></div>
+    <div class="stat"><div class="stat-label">Buffer</div>
+      <div class="stat-value" id="v-buf">--<span class="stat-unit">ms</span></div></div>
+    <div class="stat"><div class="stat-label">Jitter</div>
+      <div class="stat-value" id="v-jitter">--<span class="stat-unit">ms</span></div></div>
+  </div>
+  <div class="stats2">
+    <div class="stat"><div class="stat-label">Packets/s</div>
+      <div class="stat-value" id="v-pps">--</div></div>
+    <div class="stat"><div class="stat-label">Skips</div>
+      <div class="stat-value" id="v-skip">0</div></div>
+    <div class="stat"><div class="stat-label">Jitter buffer fill</div>
+      <div class="jbar-wrap"><div class="jbar" id="jbar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div id="status" class="inf">ready</div>
+  <div id="debug"></div>
+</div>
+
+<div class="graph-card">
+  <div class="graph-header">
+    <span class="graph-title">Latency — realtime (10s)</span>
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:var(--col-total)"></div>total</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--col-net)"></div>network</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--col-buf)"></div>buffer</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--col-jitter)"></div>jitter</div>
+    </div>
+  </div>
+  <div class="graph-wrap">
+    <div class="y-axis" id="yAxis"></div>
+    <div class="graph-inner"><canvas id="graph" height="140"></canvas></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 定数
+// ============================================================
+const SAMPLE_RATE     = 48000;
+const JITTER_ALPHA    = 0.1;
+const SKIP_MARGIN     = 0.040;   // TARGET + 40ms超でスキップ開始
+const RESET_THRESHOLD = 0.350;   // 350ms超でハードリセット
+const GRAPH_DURATION  = 10;
+const GRAPH_FPS       = 30;
+const GRAPH_COLORS    = {
+  total:'#00e5ff', net:'#7c3aed', buf:'#00e676', jitter:'#ffab40'
+};
+
+// ============================================================
+// 状態
+// ============================================================
+let ws      = null;
+let ctx     = null;
+let active  = false;
+
+// Opusデコーダ
+let decoder       = null;   // native AudioDecoder
+let wasmDec       = null;   // WASM OpusDecoder
+let useWasm       = false;
+const pendingMeta = [];     // native AudioDecoder 用メタデータキュー
+
+// 遅延制御
+let nextTime     = 0;
+let offset       = null;
+let lastNetDelay = null;
+let jitterEst    = 0;
+
+// ジッタバッファ
+let jitterQueue = [];
+let jbPlaying   = false;
+
+// 統計
+let ppsCount = 0;
+let ppsLast  = performance.now();
+let skipCount = 0;
+
+// グラフ
+let ring       = [];
+let graphTimer = null;
+
+// ============================================================
+// UI ヘルパー
+// ============================================================
+function setStatus(msg, cls='inf') {
+  const el = document.getElementById('status');
+  el.textContent = msg; el.className = cls;
+}
+function setVal(id, val, unit='') {
+  const el = document.getElementById(id); if (!el) return;
+  const n = parseFloat(val);
+  el.innerHTML = isNaN(n)
+    ? `--<span class="stat-unit">${unit}</span>`
+    : `${n.toFixed(1)}<span class="stat-unit">${unit}</span>`;
+  if (['v-total','v-net','v-buf','v-jitter'].includes(id))
+    el.className = 'stat-value' + (n<40?' good':n<100?' warn':' bad');
+}
+function addDebug(msg) {
+  const el = document.getElementById('debug');
+  const ts = performance.now().toFixed(0);
+  el.textContent = `[${ts}] ${msg}\n` + el.textContent.split('\n').slice(0,8).join('\n');
+}
+
+// ============================================================
+// ビジュアライザ
+// ============================================================
+const vizCanvas = document.getElementById('viz');
+const vCtx = vizCanvas.getContext('2d');
+function drawViz(ch0) {
+  const W = vizCanvas.width, H = vizCanvas.height;
+  vCtx.clearRect(0, 0, W, H);
+  const step = Math.max(1, Math.floor(ch0.length/W));
+  const g = vCtx.createLinearGradient(0, 0, W, 0);
+  g.addColorStop(0,'#7c3aed'); g.addColorStop(.5,'#00e5ff'); g.addColorStop(1,'#00e676');
+  vCtx.strokeStyle=g; vCtx.lineWidth=1.5; vCtx.beginPath();
+  for (let x=0; x<W; x++) {
+    const amp = Math.abs(ch0[Math.min(x*step, ch0.length-1)]);
+    const y   = H/2 - amp*(H/2)*.85;
+    x===0 ? vCtx.moveTo(x,y) : vCtx.lineTo(x,y);
+  }
+  vCtx.stroke();
+}
+
+// ============================================================
+// グラフ
+// ============================================================
+const graphCanvas = document.getElementById('graph');
+const gCtx = graphCanvas.getContext('2d');
+function resizeGraph() {
+  graphCanvas.width  = graphCanvas.parentElement.clientWidth || 512;
+  graphCanvas.height = 140;
+}
+resizeGraph();
+window.addEventListener('resize', () => { resizeGraph(); drawGraph(); });
+
+function niceMax(val, steps) {
+  if (val<=0) return 100;
+  const raw  = val*1.15;
+  const step = Math.pow(10, Math.floor(Math.log10(raw/steps)));
+  return Math.ceil(raw/step)*step;
+}
+function updateYAxis(maxVal) {
+  const steps=5, nice=niceMax(maxVal,steps);
+  const axis=document.getElementById('yAxis');
+  axis.innerHTML='';
+  for (let i=steps; i>=0; i--) {
+    const d=document.createElement('div');
+    d.className='y-label';
+    d.textContent=Math.round(nice*i/steps);
+    axis.appendChild(d);
+  }
+  return nice;
+}
+function drawGraph() {
+  const W=graphCanvas.width, H=graphCanvas.height;
+  gCtx.clearRect(0,0,W,H);
+  if (ring.length<2) return;
+  const now    = ring[ring.length-1].t;
+  const tStart = now-GRAPH_DURATION*1000;
+  const visible= ring.filter(d=>d.t>=tStart);
+  if (visible.length<2) return;
+  const allVals= visible.flatMap(d=>[d.total,d.net,d.buf,d.jitter]).filter(v=>isFinite(v)&&v>=0);
+  const maxVal = allVals.length?Math.max(...allVals):100;
+  const yMax   = updateYAxis(maxVal);
+  // グリッド線
+  gCtx.strokeStyle='rgba(255,255,255,.04)'; gCtx.lineWidth=1;
+  for (let i=1; i<=5; i++) {
+    const y=H*(1-i/5);
+    gCtx.beginPath(); gCtx.moveTo(0,y); gCtx.lineTo(W,y); gCtx.stroke();
+  }
+  // Targetライン
+  const tgt=getTargetSec()*1000;
+  if (tgt<=yMax) {
+    const ty=H*(1-tgt/yMax);
+    gCtx.strokeStyle='rgba(0,229,255,.2)'; gCtx.setLineDash([4,4]);
+    gCtx.beginPath(); gCtx.moveTo(0,ty); gCtx.lineTo(W,ty); gCtx.stroke();
+    gCtx.setLineDash([]);
+    gCtx.fillStyle='rgba(0,229,255,.5)'; gCtx.font='8px JetBrains Mono';
+    gCtx.fillText('target',2,ty-3);
+  }
+  // 折れ線
+  for (const {key,color,width} of [
+    {key:'total', color:GRAPH_COLORS.total,  width:1.5},
+    {key:'net',   color:GRAPH_COLORS.net,    width:1.2},
+    {key:'buf',   color:GRAPH_COLORS.buf,    width:1.2},
+    {key:'jitter',color:GRAPH_COLORS.jitter, width:1.0},
+  ]) {
+    gCtx.strokeStyle=color; gCtx.lineWidth=width; gCtx.beginPath();
+    let first=true;
+    for (const d of visible) {
+      const val=d[key]; if(!isFinite(val)||val<0){first=true;continue;}
+      const x=(d.t-tStart)/(GRAPH_DURATION*1000)*W;
+      const y=H*(1-Math.min(val,yMax)/yMax);
+      first?gCtx.moveTo(x,y):gCtx.lineTo(x,y); first=false;
+    }
+    gCtx.stroke();
+  }
+  // スキップマーカー（赤い縦線）
+  for (const d of visible) {
+    if (d.skip) {
+      const x=(d.t-tStart)/(GRAPH_DURATION*1000)*W;
+      gCtx.strokeStyle='rgba(255,23,68,.5)'; gCtx.lineWidth=1;
+      gCtx.beginPath(); gCtx.moveTo(x,0); gCtx.lineTo(x,H); gCtx.stroke();
+    }
+  }
+}
+
+// ============================================================
+// 設定値
+// ============================================================
+function getJBSec()     { return (parseFloat(document.getElementById('jitterBuf').value)||40)/1000; }
+function getTargetSec() { return (parseFloat(document.getElementById('target').value)||60)/1000; }
+function getAdaptiveJB(){ return Math.max(jitterEst*3, getJBSec()); }
+
+// ============================================================
+// リングバッファ記録
+// ============================================================
+function recordPoint(total, net, buf, jitter, skip=false) {
+  ring.push({t:performance.now(), total, net, buf, jitter, skip});
+  const cutoff=performance.now()-(GRAPH_DURATION+2)*1000;
+  while (ring.length && ring[0].t<cutoff) ring.shift();
+}
+
+// ============================================================
+// ジッタバッファ & スケジューラ
+// ============================================================
+function scheduleDecoded(left, right, sampleRate, netDelay) {
+  const frames = left.length;
+  const buf    = ctx.createBuffer(2, frames, sampleRate);
+  buf.getChannelData(0).set(left);
+  buf.getChannelData(1).set(right);
+  enqueueBuffer(buf, netDelay);
+}
+
+function enqueueBuffer(audioBuf, netDelay) {
+  const jbSec  = getAdaptiveJB();
+  const queued = jitterQueue.reduce((s,e)=>s+e.buffer.duration,0)+audioBuf.duration;
+  const fill   = Math.min(100, queued/jbSec*100);
+  const bar    = document.getElementById('jbar');
+  bar.style.width      = fill+'%';
+  bar.style.background = fill>85?'var(--warn)':'var(--good)';
+
+  if (!jbPlaying) {
+    jitterQueue.push({buffer:audioBuf, netDelay});
+    const total=jitterQueue.reduce((s,e)=>s+e.buffer.duration,0);
+    if (total>=jbSec) {
+      jbPlaying=true;
+      nextTime=ctx.currentTime+getTargetSec();
+      for (const entry of jitterQueue) scheduleOne(entry);
+      jitterQueue=[];
+    }
+  } else {
+    scheduleOne({buffer:audioBuf, netDelay});
+  }
+}
+
+function scheduleOne({buffer, netDelay}) {
+  const now      = ctx.currentTime;
+  const bufDelay = nextTime-now;
+  const target   = getTargetSec();
+  const totalMs  = (netDelay+Math.max(0,bufDelay))*1000;
+
+  setVal('v-buf',   bufDelay*1000,'ms');
+  setVal('v-total', totalMs,'ms');
+
+  // ハードリセット（350ms超 or 過去）
+  if (bufDelay>RESET_THRESHOLD || bufDelay<0) {
+    nextTime=now+target;
+    setStatus('reset','err');
+    setTimeout(()=>active&&setStatus('connected','ok'),600);
+    recordPoint(totalMs, netDelay*1000, bufDelay*1000, jitterEst*1000);
+    const src=ctx.createBufferSource();
+    src.buffer=buffer; src.connect(ctx.destination); src.start(nextTime);
+    nextTime+=buffer.duration;
+    drawViz(buffer.getChannelData(0));
+    return;
+  }
+  // スキップ（バッファ遅延の縮小）
+  if (bufDelay>target+SKIP_MARGIN) {
+    skipCount++;
+    document.getElementById('v-skip').textContent=skipCount;
+    setStatus(`skip (buf ${(bufDelay*1000).toFixed(0)}ms)`,'err');
+    setTimeout(()=>active&&setStatus('connected','ok'),400);
+    recordPoint(totalMs, netDelay*1000, bufDelay*1000, jitterEst*1000, true);
+    return;
+  }
+  // 正常スケジュール
+  recordPoint(totalMs, netDelay*1000, bufDelay*1000, jitterEst*1000);
+  const src=ctx.createBufferSource();
+  src.buffer=buffer; src.connect(ctx.destination); src.start(nextTime);
+  nextTime+=buffer.duration;
+  drawViz(buffer.getChannelData(0));
+}
+
+// ============================================================
+// Opusデコーダ初期化
+// ============================================================
+async function initDecoder() {
+  // native AudioDecoder（SecureContext必須。HTTPの場合はWASMにフォールバック）
+  if (window.isSecureContext && typeof AudioDecoder !== 'undefined') {
+    try {
+      const sup = await AudioDecoder.isConfigSupported({
+        codec:'opus', sampleRate:SAMPLE_RATE, numberOfChannels:2
+      });
+      addDebug(`AudioDecoder supported: ${sup.supported}`);
+      if (sup.supported) {
+        decoder = new AudioDecoder({
+          output: onNativeOutput,
+          error:  e => addDebug(`AudioDecoder error: ${e}`),
+        });
+        decoder.configure({codec:'opus', sampleRate:SAMPLE_RATE, numberOfChannels:2});
+        useWasm=false;
+        setBadge('NATIVE', false);
+        addDebug('decoder: native AudioDecoder');
+        return;
+      }
+    } catch(e) { addDebug(`AudioDecoder probe failed: ${e}`); }
+  } else {
+    addDebug(`AudioDecoder skip (secureContext=${window.isSecureContext})`);
+  }
+
+  // フォールバック: WASM opus-decoder
+  setBadge('WASM', true);
+  setStatus('decoder init…','inf');
+  const OpusDecoderClass = window['opus-decoder']?.OpusDecoder;
+  if (!OpusDecoderClass) throw new Error('opus-decoder not loaded');
+  wasmDec = new OpusDecoderClass();
+  await wasmDec.ready;
+  useWasm=true;
+  addDebug('decoder: WASM OpusDecoder');
+}
+
+function setBadge(label, isWasm) {
+  const el = document.getElementById('decBadge');
+  el.textContent = label;
+  el.className   = 'dec-badge' + (isWasm?' wasm':'');
+}
+
+// native AudioDecoder コールバック
+function onNativeOutput(audioData) {
+  const item = pendingMeta.shift();
+  if (!item) { audioData.close(); return; }
+  const frames=audioData.numberOfFrames, ch=audioData.numberOfChannels, sr=audioData.sampleRate;
+  let left, right;
+  if (audioData.format==='f32-planar') {
+    left=new Float32Array(frames); right=new Float32Array(frames);
+    audioData.copyTo(left,  {planeIndex:0});
+    audioData.copyTo(right, {planeIndex:ch>1?1:0});
+  } else {
+    const interleaved=new Float32Array(frames*ch);
+    audioData.copyTo(interleaved, {planeIndex:0});
+    left=new Float32Array(frames); right=new Float32Array(frames);
+    for (let i=0;i<frames;i++) { left[i]=interleaved[i*ch]; right[i]=interleaved[i*ch+(ch>1?1:0)]; }
+  }
+  audioData.close();
+  scheduleDecoded(left, right, sr, item.netDelay);
+}
+
+// ============================================================
+// バイナリデータ受信
+//
+// パケット構造 (server.cpp):
+//   [0-7]  double  timestamp (s)
+//   [8-9]  uint16  opusLen
+//   [10-N] bytes   opus frame
+// ============================================================
+function onBinaryData(ab) {
+  if (!(ab instanceof ArrayBuffer) || ab.byteLength<11) return;
+
+  const view     = new DataView(ab);
+  const sendTime = view.getFloat64(0, true);
+  const opusLen  = view.getUint16(8, true);
+  const opusData = new Uint8Array(ab, 10, opusLen);
+  const recvTime = performance.now()/1000;
+
+  // オフセット推定（最小値フィルタ）
+  if (offset===null || (recvTime-sendTime)<offset) offset=recvTime-sendTime;
+  const netDelay=recvTime-sendTime-offset;
+  setVal('v-net', netDelay*1000,'ms');
+
+  // ジッタ推定 EMA
+  if (lastNetDelay!==null) {
+    const inst=Math.abs(netDelay-lastNetDelay);
+    jitterEst=JITTER_ALPHA*inst+(1-JITTER_ALPHA)*jitterEst;
+    setVal('v-jitter', jitterEst*1000,'ms');
+    // 推奨ジッタバッファを超えていたら入力欄をオレンジに
+    const rec=Math.ceil(jitterEst*2*1000/10)*10;
+    const jbEl=document.getElementById('jitterBuf');
+    jbEl.style.borderColor=(rec>parseFloat(jbEl.value)&&rec<=200)?'var(--warn)':'';
+  }
+  lastNetDelay=netDelay;
+
+  // PPS カウント
+  ppsCount++;
+  if (performance.now()-ppsLast>=1000) {
+    document.getElementById('v-pps').textContent=ppsCount;
+    ppsCount=0; ppsLast=performance.now();
+  }
+
+  // デコード
+  if (useWasm) {
+    try {
+      const r=wasmDec.decodeFrame(opusData);
+      if (r.samplesDecoded>0) {
+        scheduleDecoded(r.channelData[0], r.channelData[1]??r.channelData[0],
+                        r.sampleRate, netDelay);
+      }
+    } catch(e) { addDebug(`WASM decode error: ${e}`); }
+  } else {
+    // netDelay を pendingMeta に積み、コールバック側で取り出す
+    pendingMeta.push({netDelay});
+    try {
+      decoder.decode(new EncodedAudioChunk({
+        type:      'key',
+        timestamp: Math.round(sendTime*1_000_000),
+        data:      opusData,
+      }));
+    } catch(e) { addDebug(`native decode error: ${e}`); pendingMeta.pop(); }
+  }
+}
+
+// ============================================================
+// WebSocket 接続管理
+// ============================================================
+async function startSession() {
+  ctx=new AudioContext({latencyHint:'interactive', sampleRate:SAMPLE_RATE});
+  if (ctx.state==='suspended') await ctx.resume();
+  addDebug(`AudioContext sr=${ctx.sampleRate} baseLatency=${(ctx.baseLatency*1000).toFixed(1)}ms`);
+
+  // 状態リセット
+  nextTime=0; offset=null; jitterEst=0; lastNetDelay=null;
+  jitterQueue=[]; jbPlaying=false; skipCount=0; ring=[];
+  pendingMeta.length=0;
+  document.getElementById('v-skip').textContent='0';
+  document.getElementById('jbar').style.width='0%';
+  active=true;
+
+  try {
+    await initDecoder();
+  } catch(e) {
+    setStatus(`decoder error: ${e.message}`,'err');
+    active=false; return;
+  }
+
+  graphTimer=setInterval(drawGraph, 1000/GRAPH_FPS);
+
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.binaryType='arraybuffer';
+  ws.onopen    = () => {
+    setStatus('connected','ok');
+    document.getElementById('startBtn').classList.add('on');
+    document.getElementById('startBtn').textContent='STOP';
+    addDebug('WebSocket connected');
+  };
+  ws.onclose   = () => onDisconnected();
+  ws.onerror   = () => setStatus('WebSocket error','err');
+  ws.onmessage = e  => onBinaryData(e.data);
+}
+
+function onDisconnected() {
+  // 切断時はグラフタイマーも止める
+  clearInterval(graphTimer); graphTimer=null;
+  setStatus('disconnected','inf');
+  document.getElementById('startBtn').classList.remove('on');
+  document.getElementById('startBtn').textContent='START';
+  active=false;
+}
+
+async function stopSession() {
+  active=false;
+  clearInterval(graphTimer); graphTimer=null;
+  if (ws) { ws.onclose=null; ws.close(); ws=null; }
+  if (decoder) { try{decoder.close();}catch(_){} decoder=null; }
+  if (wasmDec) { try{wasmDec.free(); }catch(_){} wasmDec=null; }
+  if (ctx)     { await ctx.suspend(); ctx=null; }
+  jitterQueue=[]; jbPlaying=false; pendingMeta.length=0;
+  document.getElementById('jbar').style.width='0%';
+  document.getElementById('decBadge').textContent='--';
+  document.getElementById('decBadge').className='dec-badge';
+  setStatus('stopped','inf');
+  document.getElementById('startBtn').classList.remove('on');
+  document.getElementById('startBtn').textContent='START';
+}
+
+function toggle() { if (active) stopSession(); else startSession(); }
+</script>
+</body>
+</html>
